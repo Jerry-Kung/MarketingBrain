@@ -14,6 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 项目数据目录：data/
 - 项目文档目录：docs/
 - 测试代码目录：tests/
+- 项目临时脚本目录：scripts/
 - 配置文件：.env
 
 ## 3. 工作规范
