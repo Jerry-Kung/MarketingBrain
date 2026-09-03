@@ -1,0 +1,20 @@
+# 构建排除项
+.git
+.gitignore
+.claude
+node_modules/
+**/node_modules/
+page/node_modules/
+page/dist/
+.data/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.env
+.env.*
+!/env.example
+.DS_Store
+*.log
+.vscode
+.idea
+docs/runbooks/

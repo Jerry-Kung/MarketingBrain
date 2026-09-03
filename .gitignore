@@ -157,6 +157,17 @@ ENV/
 env.bak/
 venv.bak/
 
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+lerna-debug.log*
+
+# Marketing Brain 应用状态（SQLite 持久化目录）
+.data/
+
 # Spyder project settings
 .spyderproject
 .spyproject

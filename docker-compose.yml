@@ -1,0 +1,41 @@
+# ==========================================================
+# Marketing Brain V0 - Docker Compose
+# 默认只启动一个应用服务 + 一个本地持久化卷。
+# 直接连接测试环境 MySQL（.env 配置），不在 Compose 中复制搭建 MySQL。
+#
+# 用法（在测试环境）：
+#   安装/拷贝 .env（含只读 MySQL 账号与 LLM 配置）到项目根
+#   docker compose up -d --build      # 构建并启动
+#   docker compose logs -f            # 查看日志
+#   docker compose down               # 停止（保留数据卷）
+#
+# 数据卷 mb-app-data 保存应用状态（SQLite 任务/事件/报告），
+# 容器重建后历史数据不丢失。
+# ==========================================================
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: marketing-brain
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # 应用状态目录指向持久化卷
+      APP_STATE_DIR: /data/state
+    volumes:
+      - mb-app-data:/data/state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  mb-app-data:
+    name: marketing-brain-app-data
