@@ -135,3 +135,22 @@ def test_topic_frequency(ds):
     assert isinstance(tags, list)
     for t in tags:
         assert "topic" in t and "comment_count" in t
+
+
+def test_fetch_comments_order_by_likes(ds):
+    """order_by="likes" 应在外层派生表上排序，返回按点赞数非升序排列。"""
+    recs = ds.fetch_comments(
+        limit=20, start_time=datetime(2026, 8, 1), end_time=datetime(2026, 8, 31),
+        video_tags=["坦克300"], order_by="likes",
+    )
+    likes = [r.comment_like_count for r in recs]
+    assert likes == sorted(likes, reverse=True)
+
+
+def test_fetch_comments_order_by_random(ds):
+    """order_by="random" 不应报错，返回条数不超过 limit。"""
+    recs = ds.fetch_comments(
+        limit=20, start_time=datetime(2026, 8, 1), end_time=datetime(2026, 8, 31),
+        video_tags=["坦克300"], order_by="random",
+    )
+    assert len(recs) <= 20

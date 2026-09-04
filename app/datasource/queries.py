@@ -3,53 +3,10 @@
 包含两部分：
 1. `parse_comments_from_payload` —— 纯逻辑：从 api_job.request_payload 的 JSON
    字符串解析出 comments 数组。用于在应用层解析，或在不需要 DB JSON_TABLE 时降级使用。
-2. SQL 常量 —— 通过 JSON_TABLE 在 MySQL 端展开的预定义查询。
+2. SQL 常量/构造函数 —— 通过 JSON_TABLE 在 MySQL 端展开的预定义查询。
+   展开评论的基础 SELECT 唯一定义为 `build_comment_query()`。
 """
 import json
-
-# JSON_TABLE 在 MySQL 端展开 request_payload.comments[*]。
-# 注意：like 是 MySQL 保留字，列别名用反引号 \`like_count\`。
-# 该 SQL 返回每条评论一行。__（双下划线）内部字段名与映射列对应。
-SQL_EXPAND_COMMENTS = """
-SELECT
-    j.id                         AS job_id,
-    j.status                     AS job_status,
-    j.created_at                 AS job_created_at,
-    c.cid                        AS comment_id,
-    c.c                          AS comment_content,
-    c.vt                         AS video_title,
-    c.at                         AS comment_author,
-    c.uid                        AS comment_author_uid,
-    c.like_count                 AS comment_like_count,
-    r.passed,
-    r.is_car_owner,
-    r.has_purchase_intent,
-    r.analysis
-FROM api_job j
-CROSS JOIN JSON_TABLE(
-    j.request_payload, '$.comments[*]'
-    COLUMNS (
-        cid  VARCHAR(64)      PATH '$.comment_id',
-        vt   TEXT             PATH '$.video_title',
-        at   VARCHAR(255)     PATH '$.comment_author',
-        uid  VARCHAR(128)     PATH '$.comment_author_uid',
-        c    TEXT             PATH '$.comment_content',
-        `like_count` INT      PATH '$.comment_like_count'
-    )
-) c
-LEFT JOIN JSON_TABLE(
-    j.result, '$.results[*]'
-    COLUMNS (
-        rcid VARCHAR(64)      PATH '$.comment_id',
-        passed BOOLEAN        PATH '$.passed',
-        is_car_owner BOOLEAN  PATH '$.is_car_owner',
-        has_purchase_intent BOOLEAN PATH '$.has_purchase_intent',
-        analysis TEXT         PATH '$.analysis'
-    )
-) r ON c.cid = r.rcid
-WHERE j.job_type = 'comment_screening'
-  AND j.status = 'success'
-"""
 
 # 统计 api_job 中 comment_screening 作业总数与累计评论数（每行一个作业）
 SQL_COUNT = """
@@ -67,6 +24,7 @@ def build_comment_query(*, filters: bool = True) -> str:
 
     filters 参数预留（当前恒为基础 WHERE：job_type + status），
     调用方（adapter._comment_base）在此基础上追加时间/标签/关键字等条件。
+    注意：like 是 MySQL 保留字，JSON_TABLE 列别名用反引号 `like_count`。
     """
     return """
         SELECT

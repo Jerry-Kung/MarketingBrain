@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.datasource.adapter import _build_comment_filters, _tag_like_clause
-from app.datasource.adapter import _aggregate_time_series
+from app.datasource.adapter import _aggregate_time_series, _time_tag_conds
 
 
 class TestTagFilter:
@@ -70,3 +70,36 @@ class TestTimeSeries:
         # 应补齐缺失日（8-1 到 8-3 三天）
         assert len(buckets["buckets"]) == 3
         assert buckets["buckets"][0]["count"] == 25  # 8-01 两天合并
+
+
+class TestTimeTagConds:
+    """_time_tag_conds 是 _comment_base/top_videos/topic_frequency 共用的
+    时间窗口 + 标签条件构造辅助（收敛此前三处重复代码）。"""
+
+    def test_both_bounds_present(self):
+        conds = _time_tag_conds({
+            "start_time": datetime(2026, 8, 1), "end_time": datetime(2026, 8, 31),
+        })
+        assert conds == ["j.created_at >= :start_time", "j.created_at <= :end_time"]
+
+    def test_only_start(self):
+        conds = _time_tag_conds({"start_time": datetime(2026, 8, 1)})
+        assert conds == ["j.created_at >= :start_time"]
+
+    def test_only_end(self):
+        conds = _time_tag_conds({"end_time": datetime(2026, 8, 31)})
+        assert conds == ["j.created_at <= :end_time"]
+
+    def test_tags_present(self):
+        conds = _time_tag_conds({"video_tags": ["坦克300"]})
+        assert len(conds) == 1
+        assert "%#坦克300%" in conds[0]
+
+    def test_none(self):
+        assert _time_tag_conds({}) == []
+
+    def test_empty_tag_string_skipped(self):
+        """video_tags=[""] 使 _tag_like_clause 返回 None；不能把 None 拼进条件列表。"""
+        conds = _time_tag_conds({"video_tags": [""]})
+        assert conds == []
+        assert None not in conds

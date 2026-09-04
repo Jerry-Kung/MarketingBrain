@@ -36,6 +36,26 @@ def _tag_like_clause(video_tags) -> Optional[str]:
     return f"({clause})" if clause else None
 
 
+def _time_tag_conds(params: dict) -> list[str]:
+    """根据 params 中已写入的键，构造时间窗口与标签匹配的 SQL 条件片段列表。
+
+    时间条件仅在 params 含 start_time/end_time 键时才生成（可选窗口）；
+    标签条件仅在 _tag_like_clause 返回非 None 时才加入（video_tags=[""] 之类
+    的全空标签列表会被 _tag_like_clause 过滤掉，此处需同步跳过，避免把 None
+    拼进 SQL 条件列表）。供 _comment_base/top_videos/topic_frequency 复用。
+    """
+    conds = []
+    if "start_time" in params:
+        conds.append("j.created_at >= :start_time")
+    if "end_time" in params:
+        conds.append("j.created_at <= :end_time")
+    if params.get("video_tags"):
+        tag_clause = _tag_like_clause(params["video_tags"])
+        if tag_clause is not None:
+            conds.append(tag_clause)
+    return conds
+
+
 def _build_comment_filters(params: dict, *, start_time: Optional[datetime] = None,
                             end_time: Optional[datetime] = None,
                             video_tags=None, keyword: Optional[str] = None,
@@ -162,19 +182,13 @@ class MySqlDataSource:
         )
 
     # ---- 内部工具：带过滤条件的评论子查询 ----
-    def _comment_base(self, params: dict, *, extra_order: str = "") -> str:
-        """构造带过滤条件的展开评论 SQL。
+    def _comment_base(self, params: dict) -> str:
+        """构造带过滤条件的展开评论 SQL（不含 LIMIT/ORDER BY，由调用方在外层拼接）。
 
         时间条件仅在 params 中存在 start_time/end_time 时才拼接（可选窗口）。
         """
         sql = build_comment_query()
-        conds = []
-        if "start_time" in params:
-            conds.append("j.created_at >= :start_time")
-        if "end_time" in params:
-            conds.append("j.created_at <= :end_time")
-        if params.get("video_tags"):
-            conds.append(_tag_like_clause(params["video_tags"]))
+        conds = _time_tag_conds(params)
         if params.get("keyword"):
             conds.append("c.c LIKE CONCAT('%', :keyword, '%')")
         if params.get("min_like") is not None:
@@ -187,7 +201,6 @@ class MySqlDataSource:
             conds.append("r.is_car_owner = :is_car_owner")
         if conds:
             sql += " AND " + " AND ".join(conds)
-        sql += extra_order
         return sql
 
     # ---- 预定义查询方法 ----
@@ -210,29 +223,26 @@ class MySqlDataSource:
             passed=passed, has_purchase_intent=has_purchase_intent,
             is_car_owner=is_car_owner,
         )
+        # ORDER BY 作用在外层（外层别名 comment_like_count），而不是内层派生表，
+        # 避免 MySQL 对派生表内 ORDER BY 的优化器行为不确定（结果可能不保证顺序）。
         order = ""
         if order_by == "random":
             order = " ORDER BY RAND()"
         elif order_by == "likes":
-            order = " ORDER BY c.like_count DESC"
-        sql = f"SELECT * FROM ({self._comment_base(params, extra_order=order)}) AS expanded LIMIT :lim"
+            order = " ORDER BY comment_like_count DESC"
+        sql = f"SELECT * FROM ({self._comment_base(params)}) AS expanded{order} LIMIT :lim"
         params["lim"] = int(limit)
         result = self._execute(sql, params)
         return [self._row_to_comment(row) for row in result.mappings()]
 
     def count_comments(self, *, start_time: Optional[datetime] = None,
                         end_time: Optional[datetime] = None, video_tags=None,
-                        keyword: Optional[str] = None, min_like: Optional[int] = None,
-                        passed: Optional[bool] = None,
-                        has_purchase_intent: Optional[bool] = None,
-                        is_car_owner: Optional[bool] = None) -> int:
+                        keyword: Optional[str] = None) -> int:
         """统计符合过滤条件的评论条数（口径与 fetch_comments 一致）。"""
         params: dict = {}
         _build_comment_filters(
             params, start_time=start_time, end_time=end_time,
-            video_tags=video_tags, keyword=keyword, min_like=min_like,
-            passed=passed, has_purchase_intent=has_purchase_intent,
-            is_car_owner=is_car_owner,
+            video_tags=video_tags, keyword=keyword,
         )
         sql = f"SELECT COUNT(*) AS c FROM ({self._comment_base(params)}) AS x"
         result = self._execute(sql, params)
@@ -293,13 +303,7 @@ class MySqlDataSource:
             "vt TEXT PATH '$.video_title', `like_count` INT PATH '$.comment_like_count')) c "
             "WHERE j.job_type='comment_screening' AND j.status='success'"
         )
-        conds = []
-        if "start_time" in params:
-            conds.append("j.created_at >= :start_time")
-        if "end_time" in params:
-            conds.append("j.created_at <= :end_time")
-        if params.get("video_tags"):
-            conds.append(_tag_like_clause(params["video_tags"]))
+        conds = _time_tag_conds(params)
         if conds:
             sql += " AND " + " AND ".join(conds)
         sql += " GROUP BY c.vt ORDER BY comment_count DESC LIMIT :lim"
@@ -331,13 +335,7 @@ class MySqlDataSource:
             "COLUMNS (vt TEXT PATH '$.video_title')) c "
             "WHERE j.job_type='comment_screening' AND j.status='success'"
         )
-        conds = []
-        if "start_time" in params:
-            conds.append("j.created_at >= :start_time")
-        if "end_time" in params:
-            conds.append("j.created_at <= :end_time")
-        if params.get("video_tags"):
-            conds.append(_tag_like_clause(params["video_tags"]))
+        conds = _time_tag_conds(params)
         if conds:
             sql += " AND " + " AND ".join(conds)
         result = self._execute(sql, params)
