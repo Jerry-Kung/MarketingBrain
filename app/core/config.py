@@ -50,12 +50,13 @@ class Settings(BaseSettings):
     LLM_API_BASE: str | None = None
     LLM_API_KEY: str | None = None
     LLM_MODEL: str | None = None
+    LLM_TIMEOUT_MS: int = Field(default=120000)
 
     # ---------- 运行参数 ----------
     UI_POLL_INTERVAL_MS: int = Field(default=2500)
     TOOL_MAX_RECORDS: int = Field(default=500)
 
-    @field_validator("APP_PORT", "UI_POLL_INTERVAL_MS", "TOOL_MAX_RECORDS")
+    @field_validator("APP_PORT", "UI_POLL_INTERVAL_MS", "TOOL_MAX_RECORDS", "LLM_TIMEOUT_MS")
     @classmethod
     def _positive_int(cls, v: int) -> int:
         if v <= 0:
@@ -82,6 +83,11 @@ class Settings(BaseSettings):
             f"mysql+pymysql://{self.DB_USER}:{pwd}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?charset={self.DB_CHARSET}"
         )
+
+    @property
+    def llm_timeout(self) -> float:
+        """LLM 请求超时（秒）。"""
+        return self.LLM_TIMEOUT_MS / 1000.0
 
     def model_post_init(self, __context) -> None:
         """在对象初始化完成后校验必需数据库配置。"""

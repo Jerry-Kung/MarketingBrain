@@ -20,7 +20,7 @@ def backup_env():
         for k in [
             "APP_ENV", "APP_PORT", "APP_LOG_LEVEL", "APP_STATE_DIR",
             "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME", "DB_CHARSET",
-            "UI_POLL_INTERVAL_MS", "TOOL_MAX_RECORDS",
+            "UI_POLL_INTERVAL_MS", "TOOL_MAX_RECORDS", "LLM_TIMEOUT_MS",
         ]
     }
     yield
@@ -72,3 +72,16 @@ def test_missing_env_raises_clear_error(backup_env, monkeypatch):
         Settings(_env_file=None)
     assert "DB_" in str(exc_info.value)
     assert ".env" in str(exc_info.value)
+
+
+def test_llm_timeout_default(backup_env):
+    s = Settings()
+    assert s.LLM_TIMEOUT_MS == 120000
+    assert s.llm_timeout == 120.0
+
+
+def test_llm_timeout_override(backup_env, monkeypatch):
+    monkeypatch.setenv("LLM_TIMEOUT_MS", "60000")
+    s = Settings()
+    assert s.LLM_TIMEOUT_MS == 60000
+    assert s.llm_timeout == 60.0
