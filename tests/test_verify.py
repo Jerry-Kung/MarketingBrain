@@ -89,3 +89,50 @@ def test_distinct_ref_counted_once():
     cleaned, validation = validate_report(report, store)
     assert validation["total_refs"] == 1
     assert validation["valid_refs"] == 1
+
+
+def test_video_job_id_cited_in_refs_is_rejected():
+    """refs 只认 comment 命名空间：把 video 的 job_id 塞进 refs 应被剔除并计入 rejected。"""
+    store = _store()
+    report = {"themes": [{"theme": "x", "refs": ["j1"]}]}
+    cleaned, validation = validate_report(report, store)
+    assert cleaned["themes"][0]["refs"] == []
+    assert "j1" in validation["rejected_refs"]
+    assert validation["valid_refs"] == 0
+
+
+def test_comment_id_cited_as_source_job_id_is_rejected():
+    """sources[].job_id 只认 video 命名空间：把 comment_id 塞进 job_id 应整项丢弃并计入 rejected。"""
+    store = _store()
+    report = {"sources": [{"job_id": "c1", "video_title": "x"}]}
+    cleaned, validation = validate_report(report, store)
+    assert cleaned["sources"] == []
+    assert "c1" in validation["rejected_refs"]
+
+
+def test_int_job_id_normalized_and_checked():
+    """job_id 为 int 类型时，未注册应被剔除并按字符串计入 rejected；注册后应保留并计入 valid。"""
+    store = _store()
+    report = {"sources": [{"job_id": 123, "video_title": "x"}]}
+
+    cleaned, validation = validate_report(report, store)
+    assert cleaned["sources"] == []
+    assert "123" in validation["rejected_refs"]
+
+    store2 = _store()
+    store2.register_video(job_id="123", video_title="c", comment_count=1, source="s")
+    cleaned2, validation2 = validate_report(report, store2)
+    assert cleaned2["sources"][0]["job_id"] == 123
+    assert validation2["valid_refs"] == 1
+    assert "123" not in validation2["rejected_refs"]
+
+
+def test_int_comment_id_normalized_and_valid():
+    """comment_id 字段为 int 类型，但注册的证据 ID 为对应字符串时应被识别为合法。"""
+    store = _store()
+    store.register_comment(CommentRecord(comment_id="42", content="ok", job_id="j1"), source="s")
+    report = {"comment_id": 42}
+    cleaned, validation = validate_report(report, store)
+    assert cleaned == {"comment_id": 42}
+    assert validation["valid_refs"] == 1
+    assert validation["rejected_refs"] == []
