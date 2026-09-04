@@ -105,7 +105,10 @@ class LLMProvider:
         if resp.status_code != 200:
             raise LLMError(f"LLM 返回 {resp.status_code}: {resp.text[:300]}")
 
-        data = resp.json()
+        try:
+            data = resp.json()
+        except (json.JSONDecodeError, ValueError) as e:
+            raise LLMError(f"LLM 响应体不是合法 JSON: {e}; 原文 {resp.text[:300]}") from e
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as e:

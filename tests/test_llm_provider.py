@@ -83,6 +83,14 @@ class TestLLMProvider:
         with pytest.raises(LLMError):
             p.chat([{"role": "user", "content": "x"}])
 
+    def test_chat_200_with_non_json_body_raises_llm_error(self):
+        transport = httpx.MockTransport(
+            lambda req: httpx.Response(200, content=b"<html>gateway error</html>")
+        )
+        p = LLMProvider("https://llm.example.com/v1", "k", "m", transport=transport)
+        with pytest.raises(LLMError):
+            p.chat([{"role": "user", "content": "x"}])
+
     def test_from_settings(self, monkeypatch):
         from app.core.config import Settings
         monkeypatch.setenv("LLM_API_BASE", "https://llm.example.com/v1")
