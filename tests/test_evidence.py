@@ -45,7 +45,77 @@ class TestEvidenceStore:
         assert all("evidence_id" in d and "kind" in d for d in dicts)
 
     def test_partial_flags_none(self):
+        """测试 None 值和 False 值正确透传。"""
         store = EvidenceStore(task_id="t1")
-        store.register_comment(_comment(), source="sample")
+        # 注册带有 None 标志和 passed=False 的评论
+        rec = store.register_comment(
+            CommentRecord(
+                comment_id="c_none",
+                content="test",
+                video_title="test_video",
+                job_id="j1",
+                is_car_owner=None,
+                has_purchase_intent=None,
+                passed=False,
+            ),
+            source="sample",
+        )
+        # 验证 EvidenceRecord 中的值
+        assert rec.is_car_owner is None
+        assert rec.has_purchase_intent is None
+        assert rec.passed is False
+
+        # 验证 to_dict() 中的值
+        d = rec.to_dict()
+        assert d["is_car_owner"] is None
+        assert d["has_purchase_intent"] is None
+        assert d["passed"] is False
+
+        # 验证 all_records() 中的值
         recs = store.all_records()
-        assert recs[0].is_car_owner is True
+        assert recs[0].is_car_owner is None
+        assert recs[0].has_purchase_intent is None
+        assert recs[0].passed is False
+
+        # 保证 True 值也能正确透传
+        rec2 = store.register_comment(_comment(), source="sample2")
+        assert rec2.is_car_owner is True
+        assert rec2.passed is True
+
+    def test_register_comment_idempotent(self):
+        """测试注册相同评论 ID 返回相同 evidence_id（幂等）。"""
+        store = EvidenceStore(task_id="t1")
+
+        # 第一次注册
+        rec1 = store.register_comment(_comment(cid="c1"), source="sample")
+        evidence_id1 = rec1.evidence_id
+
+        # 第二次注册相同评论，不同源
+        rec2 = store.register_comment(_comment(cid="c1"), source="drill")
+        evidence_id2 = rec2.evidence_id
+
+        # 验证幂等性：相同 ID 返回相同 evidence_id
+        assert evidence_id1 == evidence_id2
+        # 验证不创建新记录
+        assert len(store.all_records()) == 1
+        # 验证源列表包含两个源
+        assert rec2.extra.get("sources") == ["sample", "drill"]
+
+    def test_register_video_idempotent(self):
+        """测试注册相同视频 ID 返回相同 evidence_id（幂等）。"""
+        store = EvidenceStore(task_id="t1")
+
+        # 第一次注册
+        rec1 = store.register_video(job_id="j1", video_title="坦克300", comment_count=5, source="top")
+        evidence_id1 = rec1.evidence_id
+
+        # 第二次注册相同视频，不同源
+        rec2 = store.register_video(job_id="j1", video_title="坦克300", comment_count=5, source="drill")
+        evidence_id2 = rec2.evidence_id
+
+        # 验证幂等性：相同 ID 返回相同 evidence_id
+        assert evidence_id1 == evidence_id2
+        # 验证不创建新记录
+        assert len(store.all_records()) == 1
+        # 验证源列表包含两个源
+        assert rec2.extra.get("sources") == ["top", "drill"]

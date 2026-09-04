@@ -52,10 +52,22 @@ class EvidenceStore:
         self._stats: list[EvidenceRecord] = []
 
     def register_comment(self, record, source: str) -> EvidenceRecord:
+        comment_id_str = str(record.comment_id)
+
+        # 幂等：如果已登记，返回现有记录并更新源列表
+        if comment_id_str in self._comments:
+            ev = self._comments[comment_id_str]
+            if "sources" not in ev.extra:
+                ev.extra["sources"] = [ev.source]
+            if source not in ev.extra["sources"]:
+                ev.extra["sources"].append(source)
+            return ev
+
+        # 新登记
         ev = EvidenceRecord(
             evidence_id=_new_id(),
             kind="comment",
-            comment_id=str(record.comment_id),
+            comment_id=comment_id_str,
             job_id=str(record.job_id) if record.job_id else None,
             content=record.content or "",
             video_title=record.video_title or "",
@@ -64,7 +76,7 @@ class EvidenceStore:
             is_car_owner=record.is_car_owner,
             has_purchase_intent=record.has_purchase_intent,
             source=source,
-            extra={"analysis": record.analysis},
+            extra={"analysis": record.analysis, "sources": [source]},
         )
         if ev.comment_id:
             self._comments[ev.comment_id] = ev
@@ -72,14 +84,26 @@ class EvidenceStore:
 
     def register_video(self, *, job_id, video_title, comment_count,
                        source: str) -> EvidenceRecord:
+        job_id_str = str(job_id)
+
+        # 幂等：如果已登记，返回现有记录并更新源列表
+        if job_id_str in self._videos:
+            ev = self._videos[job_id_str]
+            if "sources" not in ev.extra:
+                ev.extra["sources"] = [ev.source]
+            if source not in ev.extra["sources"]:
+                ev.extra["sources"].append(source)
+            return ev
+
+        # 新登记
         ev = EvidenceRecord(
             evidence_id=_new_id(),
             kind="video",
-            job_id=str(job_id),
+            job_id=job_id_str,
             video_title=video_title or "",
             like_count=0,
             source=source,
-            extra={"comment_count": int(comment_count)},
+            extra={"comment_count": int(comment_count), "sources": [source]},
         )
         if ev.job_id:
             self._videos[ev.job_id] = ev
