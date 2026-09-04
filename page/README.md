@@ -6,7 +6,7 @@ Marketing Brain 的审计工作台前端（Vite + React）。
 
 ```bash
 npm install
-npm run dev        # 启动 Vite dev server (5173)，/api 代理到后端 8000
+npm run dev        # 启动 Vite dev server (5173)，/api 代理到后端 19783
 ```
 
 ## 构建

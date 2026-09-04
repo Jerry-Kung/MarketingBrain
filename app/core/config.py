@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     # ---------- 应用运行 ----------
     APP_ENV: str = Field(default="development")
-    APP_PORT: int = Field(default=8000)
+    APP_PORT: int = Field(default=19783)
     APP_LOG_LEVEL: str = Field(default="info")
 
     # ---------- 应用状态存储（SQLite 持久化目录） ----------

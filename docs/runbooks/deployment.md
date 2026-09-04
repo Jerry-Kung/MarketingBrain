@@ -23,7 +23,7 @@ cp .env.example .env
 | 配置项 | 说明 |
 |---|---|
 | `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` | 测试环境 MySQL 连接信息（**只读账号**） |
-| `APP_PORT` | 应用监听端口，默认 `8000` |
+| `APP_PORT` | 应用监听端口，默认 `19783` |
 | `APP_STATE_DIR` | SQLite 状态目录；Docker 中指向持久化卷 |
 | `LLM_*` | V0.2 接入，V0.1 可留空 |
 
@@ -47,10 +47,10 @@ docker compose logs -f         # 查看运行日志
 **测试环境部署后**，访问：
 
 ```
-http://<主机IP>:8000/
+http://<主机IP>:19783/
 ```
 
-前端静态产物由 FastAPI 在同源 `8000` 端口统一提供，无需单独的前端服务。
+前端静态产物由 FastAPI 在同源 `19783` 端口统一提供，无需单独的前端服务。
 
 **本地开发**用 Vite dev server（前后端分跑，代理 `/api`）：
 
@@ -77,14 +77,14 @@ python scripts/check_db_connectivity.py
 **② 应用健康检查**：
 
 ```bash
-curl --noproxy "*" http://localhost:8000/api/health
+curl --noproxy "*" http://localhost:19783/api/health
 # 期望 database.available=true，并返回 job_count / comment_count
 ```
 
 **③ 数据概览**（页面数据概览卡片的数据来源）：
 
 ```bash
-curl --noproxy "*" http://localhost:8000/api/data-overview
+curl --noproxy "*" http://localhost:19783/api/data-overview
 ```
 
 **④ 一键单元/集成测试**：
@@ -113,7 +113,7 @@ python -m pytest -v
 | 连通性脚本退出码 1 | `.env` 缺项 / 账号 IP 白名单 / 网络不通 | 检查 `.env`、数据库网络与账号权限 |
 | `/api/health` 返回 `database.available=false` | MySQL 连接失败或数据源未配置 | 检查 `.env` 与 MySQL 连通性 |
 | 前端评论数显示为「—」或「数据源不可用」 | 数据源读取失败 | 先跑连通性脚本，再查 `/api/data-overview` |
-| 页面打不开 / 白屏 | 静态产物未构建（本地直连 8000 时） | 本地开发改用 Vite `:5173`；生产确认 `app/static/` 有产物 |
+| 页面打不开 / 白屏 | 静态产物未构建（本地直连 19783 时） | 本地开发改用 Vite `:5173`；生产确认 `app/static/` 有产物 |
 | Windows 终端中文乱码 | 终端默认非 UTF-8 | 使用支持 UTF-8 的终端；脚本已 `reconfigure(encoding="utf-8")` |
 
 ## 8. 停止与清理

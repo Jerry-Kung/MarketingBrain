@@ -66,4 +66,4 @@ FastAPI (app/api)
 - **Docker 多阶段构建**：前端 Vite 编译产物由 FastAPI 统一提供。
 - **单应用服务 + 持久化卷**：`docker-compose.yml` 只启动一个 app 服务，挂载 `mb-app-data` 卷。
 - **直接连接测试环境 MySQL**：不在 Compose 中复制 MySQL。
-- **本地开发**：Vite dev server (5173) 代理 `/api` 到后端 (8000)；后端用 `python -m app.main`。
+- **本地开发**：Vite dev server (5173) 代理 `/api` 到后端 (19783)；后端用 `python -m app.main`。

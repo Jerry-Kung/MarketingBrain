@@ -20,7 +20,8 @@ services:
       dockerfile: Dockerfile
     container_name: marketing-brain
     ports:
-      - "8000:8000"
+      # 宿主端口跟随 APP_PORT（默认 19783），避免与容器内监听端口不一致
+      - "${APP_PORT:-19783}:${APP_PORT:-19783}"
     env_file:
       - .env
     environment:
@@ -29,7 +30,7 @@ services:
     volumes:
       - mb-app-data:/data/state
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=4)"]
+      test: ["CMD", "python", "-c", "import os, urllib.request; port=os.getenv('APP_PORT','19783'); urllib.request.urlopen(f'http://localhost:{port}/api/health', timeout=4)"]
       interval: 30s
       timeout: 5s
       start_period: 15s

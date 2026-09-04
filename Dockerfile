@@ -15,12 +15,9 @@ RUN npm run build
 # ---------- 阶段2: 后端运行 ----------
 FROM python:3.14-slim AS runtime
 
-# 系统依赖（pymysql 需要 libmysqlclient 或用纯 python，二者皆不需额外编译；
-# 为保证 utf8mb4 与国内网络稳定，仅安装最小依赖即可）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
+# 系统依赖：全部二进制依赖（pydantic-core/uvloop/httptools/watchfiles 等）
+# 在 python:3.14-slim 上均有 cp314 预编译 wheel，无需 apt 安装 gcc 编译，
+# 也无需额外系统库（PyMySQL 为纯 Python 实现）。故不执行 apt-get。
 WORKDIR /app
 
 # 先拷贝依赖声明以利用 docker layer 缓存
@@ -40,10 +37,10 @@ COPY --from=frontend-build /build/page/dist/ ./app/static/
 RUN mkdir -p /data/state
 ENV APP_STATE_DIR=/data/state
 
-EXPOSE 8000
+EXPOSE 19783
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=4)"
+    CMD python -c "import os, urllib.request; port=os.getenv('APP_PORT','19783'); urllib.request.urlopen(f'http://localhost:{port}/api/health', timeout=4)"
 
-# 启动应用（绑定 0.0.0.0）
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 启动应用（绑定 0.0.0.0，端口取自 APP_PORT 环境变量）
+CMD ["python", "-m", "app.main"]
