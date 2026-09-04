@@ -22,7 +22,7 @@ WORKDIR /app
 
 # 先拷贝依赖声明以利用 docker layer 缓存
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 拷贝后端源码
 COPY app/ ./app/
