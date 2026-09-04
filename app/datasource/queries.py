@@ -62,6 +62,45 @@ WHERE job_type = 'comment_screening'
 """
 
 
+def build_comment_query(*, filters: bool = True) -> str:
+    """返回展开评论的基础 SELECT（不含分页/额外过滤条件）。
+
+    filters 参数预留（当前恒为基础 WHERE：job_type + status），
+    调用方（adapter._comment_base）在此基础上追加时间/标签/关键字等条件。
+    """
+    return """
+        SELECT
+            j.id AS job_id, j.status AS job_status, j.created_at AS job_created_at,
+            c.cid AS comment_id, c.c AS comment_content, c.vt AS video_title,
+            c.at AS comment_author, c.uid AS comment_author_uid,
+            c.like_count AS comment_like_count,
+            r.passed, r.is_car_owner, r.has_purchase_intent, r.analysis
+        FROM api_job j
+        CROSS JOIN JSON_TABLE(
+            j.request_payload, '$.comments[*]'
+            COLUMNS (
+                cid  VARCHAR(64)      PATH '$.comment_id',
+                vt   TEXT             PATH '$.video_title',
+                at   VARCHAR(255)     PATH '$.comment_author',
+                uid  VARCHAR(128)     PATH '$.comment_author_uid',
+                c    TEXT             PATH '$.comment_content',
+                `like_count` INT      PATH '$.comment_like_count'
+            )
+        ) c
+        LEFT JOIN JSON_TABLE(
+            j.result, '$.results[*]'
+            COLUMNS (
+                rcid VARCHAR(64)      PATH '$.comment_id',
+                passed BOOLEAN        PATH '$.passed',
+                is_car_owner BOOLEAN  PATH '$.is_car_owner',
+                has_purchase_intent BOOLEAN PATH '$.has_purchase_intent',
+                analysis TEXT         PATH '$.analysis'
+            )
+        ) r ON c.cid = r.rcid
+        WHERE j.job_type = 'comment_screening' AND j.status = 'success'
+    """
+
+
 def parse_comments_from_payload(payload_json: str) -> list[dict]:
     """从 api_job.request_payload JSON 字符串解析评论数组。
 

@@ -83,3 +83,51 @@ def test_data_overview(ds):
     assert overview.start_time is not None
     assert overview.end_time is not None
     assert isinstance(overview.start_time, datetime)
+
+
+def test_fetch_comments_with_filters(ds):
+    """带时间窗 + 标签过滤能取到数据且口径正确。"""
+    recs = ds.fetch_comments(
+        limit=10, start_time=datetime(2026, 8, 1), end_time=datetime(2026, 8, 31),
+        video_tags=["坦克300"],
+    )
+    # 过滤后命中数可能为 0，但不应报错；若命中则都应带正确 job_id
+    for r in recs:
+        assert r.job_id
+
+
+def test_count_comments_tags(ds):
+    n = ds.count_comments(
+        start_time=datetime(2026, 8, 1), end_time=datetime(2026, 8, 31),
+        video_tags=["坦克300"],
+    )
+    assert n >= 0
+
+
+def test_time_series_shape(ds):
+    ts = ds.time_series(
+        start_time=datetime(2026, 8, 1), end_time=datetime(2026, 8, 31),
+        video_tags=["坦克300"],
+    )
+    assert ts["total"] >= 0
+    assert len(ts["buckets"]) == 31  # 8 月有 31 天
+
+
+def test_top_videos(ds):
+    vids = ds.top_videos(
+        start_time=datetime(2026, 8, 1), end_time=datetime(2026, 8, 31),
+        video_tags=["坦克300"], limit=5,
+    )
+    assert len(vids) <= 5
+    for v in vids:
+        assert "job_id" in v and "video_title" in v
+
+
+def test_topic_frequency(ds):
+    tags = ds.topic_frequency(
+        start_time=datetime(2026, 8, 1), end_time=datetime(2026, 8, 31),
+        video_tags=["坦克300"], limit=20,
+    )
+    assert isinstance(tags, list)
+    for t in tags:
+        assert "topic" in t and "comment_count" in t

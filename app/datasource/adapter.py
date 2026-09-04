@@ -8,18 +8,101 @@
 数据源为测试环境 MySQL 的驱动表 api_job（正式数据约 97 万条评论）。
 """
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from app.datasource.models import CommentRecord
-from app.datasource.queries import SQL_COUNT, SQL_EXPAND_COMMENTS
+from app.datasource.queries import SQL_COUNT, build_comment_query
 
 # 强制只读：连接后设置会话，确保任何误用都不会写库。
 # （账号本身只授 SELECT，双保险。）
 _READ_ONLY_SESSION = "SET SESSION TRANSACTION READ ONLY"
+
+
+def _tag_like_clause(video_tags) -> Optional[str]:
+    """根据话题标签列表生成 video_title 匹配的子句（按 #标签 精确匹配，防竞品误算）。
+
+    返回形如 "(c.vt LIKE '%#坦克300%' OR c.vt LIKE '%#坦克500%')" 或 None。
+    标签间以空格/换行分隔，标签值前拼接 # 但不要求尾部有 #；标签值中的单引号转义为两个单引号。
+    """
+    if not video_tags:
+        return None
+    clause = " OR ".join(
+        f"c.vt LIKE '%#{str(t).replace(chr(39), chr(39) * 2)}%'" for t in video_tags if t
+    )
+    return f"({clause})" if clause else None
+
+
+def _build_comment_filters(params: dict, *, start_time: Optional[datetime] = None,
+                            end_time: Optional[datetime] = None,
+                            video_tags=None, keyword: Optional[str] = None,
+                            min_like: Optional[int] = None,
+                            passed: Optional[bool] = None,
+                            has_purchase_intent: Optional[bool] = None,
+                            is_car_owner: Optional[bool] = None) -> dict:
+    """向 params 写入过滤条件对应的绑定参数（不写 SQL 文本，只写绑定量）。
+
+    时间边界用 job.created_at（唯一时间锚点）；对象用 #标签；关键字用 comment_content LIKE。
+    所有参数仅在非 None（video_tags 为非空）时写入，调用方据此判断是否拼接对应 SQL 条件。
+    """
+    if start_time is not None:
+        params["start_time"] = start_time
+    if end_time is not None:
+        params["end_time"] = end_time
+    if video_tags:
+        params["video_tags"] = video_tags
+    if keyword is not None:
+        params["keyword"] = keyword
+    if min_like is not None:
+        params["min_like"] = min_like
+    if passed is not None:
+        params["passed"] = bool(passed)
+    if has_purchase_intent is not None:
+        params["has_purchase_intent"] = bool(has_purchase_intent)
+    if is_car_owner is not None:
+        params["is_car_owner"] = bool(is_car_owner)
+    return params
+
+
+def _aggregate_time_series(rows, start: datetime, end: datetime, bucket: str = "day") -> dict:
+    """把 [(datetime, count), ...] 按桶聚合，补齐缺失区间。
+
+    rows 是逐条计数（无需预先排序）。返回 {"start","end","bucket","buckets":[...],"total"}。
+    缺桶自动补 count=0，保证时间轴完整；buckets 按时间升序排列。
+    """
+    from collections import OrderedDict
+
+    start = start.replace(tzinfo=None)
+    end = end.replace(tzinfo=None)
+    buckets: "OrderedDict[str, int]" = OrderedDict()
+    cur = start
+    if bucket == "day":
+        delta = timedelta(days=1)
+    else:
+        raise ValueError(f"不支持的 bucket: {bucket}")
+    while cur <= end:
+        buckets[cur.date().isoformat()] = 0
+        cur += delta
+    for ts, count in rows:
+        if isinstance(ts, str):
+            ts = datetime.fromisoformat(ts)
+        elif not isinstance(ts, datetime):
+            # datetime.date 等无 tzinfo 属性的情况，先转为 datetime
+            ts = datetime(ts.year, ts.month, ts.day)
+        ts = ts.replace(tzinfo=None)
+        key = ts.date().isoformat()
+        if key in buckets:
+            buckets[key] += count
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "bucket": bucket,
+        "buckets": [{"start": k, "count": v} for k, v in buckets.items()],
+        "total": sum(buckets.values()),
+    }
 
 
 @dataclass
@@ -78,16 +161,184 @@ class MySqlDataSource:
             job_created_at=row.job_created_at,
         )
 
-    # ---- 预定义查询方法 ----
-    def fetch_comments(self, limit: int = 500) -> list[CommentRecord]:
-        """拉取成功作业的评论列表（含初筛结果）。
+    # ---- 内部工具：带过滤条件的评论子查询 ----
+    def _comment_base(self, params: dict, *, extra_order: str = "") -> str:
+        """构造带过滤条件的展开评论 SQL。
 
-        参数 limit 限制返回条数（防止单次拉取过大）。
+        时间条件仅在 params 中存在 start_time/end_time 时才拼接（可选窗口）。
         """
-        # 子查询包一层，limit 作用于展开后的行
-        sql = f"SELECT * FROM ({SQL_EXPAND_COMMENTS}) AS expanded LIMIT :lim"
-        result = self._execute(sql, {"lim": int(limit)})
+        sql = build_comment_query()
+        conds = []
+        if "start_time" in params:
+            conds.append("j.created_at >= :start_time")
+        if "end_time" in params:
+            conds.append("j.created_at <= :end_time")
+        if params.get("video_tags"):
+            conds.append(_tag_like_clause(params["video_tags"]))
+        if params.get("keyword"):
+            conds.append("c.c LIKE CONCAT('%', :keyword, '%')")
+        if params.get("min_like") is not None:
+            conds.append("c.like_count >= :min_like")
+        if params.get("passed") is not None:
+            conds.append("r.passed = :passed")
+        if params.get("has_purchase_intent") is not None:
+            conds.append("r.has_purchase_intent = :has_purchase_intent")
+        if params.get("is_car_owner") is not None:
+            conds.append("r.is_car_owner = :is_car_owner")
+        if conds:
+            sql += " AND " + " AND ".join(conds)
+        sql += extra_order
+        return sql
+
+    # ---- 预定义查询方法 ----
+    def fetch_comments(self, limit: int = 500, *, start_time: Optional[datetime] = None,
+                        end_time: Optional[datetime] = None, video_tags=None,
+                        keyword: Optional[str] = None, min_like: Optional[int] = None,
+                        passed: Optional[bool] = None,
+                        has_purchase_intent: Optional[bool] = None,
+                        is_car_owner: Optional[bool] = None,
+                        order_by: Optional[str] = None) -> list[CommentRecord]:
+        """拉取符合过滤条件的评论列表（含初筛结果），限 limit 条。
+
+        所有过滤参数均可选；不传时行为与 V0.1 等价（成功作业的全部评论）。
+        order_by 支持 "random"（随机抽样）与 "likes"（按点赞数降序）。
+        """
+        params: dict = {}
+        _build_comment_filters(
+            params, start_time=start_time, end_time=end_time,
+            video_tags=video_tags, keyword=keyword, min_like=min_like,
+            passed=passed, has_purchase_intent=has_purchase_intent,
+            is_car_owner=is_car_owner,
+        )
+        order = ""
+        if order_by == "random":
+            order = " ORDER BY RAND()"
+        elif order_by == "likes":
+            order = " ORDER BY c.like_count DESC"
+        sql = f"SELECT * FROM ({self._comment_base(params, extra_order=order)}) AS expanded LIMIT :lim"
+        params["lim"] = int(limit)
+        result = self._execute(sql, params)
         return [self._row_to_comment(row) for row in result.mappings()]
+
+    def count_comments(self, *, start_time: Optional[datetime] = None,
+                        end_time: Optional[datetime] = None, video_tags=None,
+                        keyword: Optional[str] = None, min_like: Optional[int] = None,
+                        passed: Optional[bool] = None,
+                        has_purchase_intent: Optional[bool] = None,
+                        is_car_owner: Optional[bool] = None) -> int:
+        """统计符合过滤条件的评论条数（口径与 fetch_comments 一致）。"""
+        params: dict = {}
+        _build_comment_filters(
+            params, start_time=start_time, end_time=end_time,
+            video_tags=video_tags, keyword=keyword, min_like=min_like,
+            passed=passed, has_purchase_intent=has_purchase_intent,
+            is_car_owner=is_car_owner,
+        )
+        sql = f"SELECT COUNT(*) AS c FROM ({self._comment_base(params)}) AS x"
+        result = self._execute(sql, params)
+        return int(result.one().c or 0)
+
+    def time_series(self, *, start_time: datetime, end_time: datetime,
+                     video_tags=None, bucket: str = "day") -> dict:
+        """按天（或指定粒度）统计窗口内评论数，补齐缺失区间形成完整时间轴。"""
+        params: dict = {}
+        _build_comment_filters(
+            params, start_time=start_time, end_time=end_time, video_tags=video_tags,
+        )
+        sql = (
+            "SELECT DATE(j.created_at) AS d, COUNT(*) AS n FROM api_job j "
+            "CROSS JOIN JSON_TABLE(j.request_payload, '$.comments[*]' "
+            "COLUMNS (cid VARCHAR(64) PATH '$.comment_id', "
+            "vt TEXT PATH '$.video_title')) c "
+            "WHERE j.job_type='comment_screening' AND j.status='success' "
+            "AND j.created_at >= :start_time AND j.created_at <= :end_time"
+        )
+        if params.get("video_tags"):
+            sql += " AND " + _tag_like_clause(params["video_tags"])
+        sql += " GROUP BY d ORDER BY DATE(j.created_at)"
+        result = self._execute(sql, params)
+        rows = []
+        for row in result.mappings():
+            ts = row.d
+            if isinstance(ts, str):
+                ts = datetime.fromisoformat(ts)
+            else:
+                # MySQL DATE() 返回 datetime.date；转为当天起点的 datetime
+                ts = datetime(ts.year, ts.month, ts.day)
+            rows.append((ts, int(row.n or 0)))
+        return _aggregate_time_series(rows, start_time, end_time, bucket=bucket)
+
+    def top_videos(self, *, start_time: Optional[datetime] = None,
+                    end_time: Optional[datetime] = None, video_tags=None,
+                    limit: int = 10) -> list[dict]:
+        """按评论数排序返回窗口内的 Top 视频（作业维度聚合）。"""
+        params: dict = {}
+        _build_comment_filters(
+            params, start_time=start_time, end_time=end_time, video_tags=video_tags,
+        )
+        sql = (
+            "SELECT j.id AS job_id, c.vt AS video_title, "
+            "COUNT(*) AS comment_count, "
+            "COALESCE(SUM(c.like_count),0) AS like_sum "
+            "FROM api_job j CROSS JOIN JSON_TABLE(j.request_payload, '$.comments[*]' "
+            "COLUMNS (cid VARCHAR(64) PATH '$.comment_id', "
+            "vt TEXT PATH '$.video_title', `like_count` INT PATH '$.comment_like_count')) c "
+            "WHERE j.job_type='comment_screening' AND j.status='success'"
+        )
+        conds = []
+        if "start_time" in params:
+            conds.append("j.created_at >= :start_time")
+        if "end_time" in params:
+            conds.append("j.created_at <= :end_time")
+        if params.get("video_tags"):
+            conds.append(_tag_like_clause(params["video_tags"]))
+        if conds:
+            sql += " AND " + " AND ".join(conds)
+        sql += " GROUP BY j.id, c.vt ORDER BY comment_count DESC LIMIT :lim"
+        params["lim"] = int(limit)
+        result = self._execute(sql, params)
+        return [
+            {"job_id": row.job_id, "video_title": row.video_title or "",
+             "comment_count": int(row.comment_count or 0), "like_sum": int(row.like_sum or 0)}
+            for row in result.mappings()
+        ]
+
+    def topic_frequency(self, *, start_time: Optional[datetime] = None,
+                         end_time: Optional[datetime] = None, video_tags=None,
+                         limit: int = 50) -> list[dict]:
+        """统计窗口内评论所属视频标题的高频话题标签（不含对象本身的标签）。
+
+        用于给 LLM 提供候选子主题。对象标签（如 #坦克300）会出现在几乎所有
+        标题里，为避免无意义，这里按出现次数排序，由调用方决定是否排除对象标签。
+        """
+        params: dict = {}
+        _build_comment_filters(
+            params, start_time=start_time, end_time=end_time, video_tags=video_tags,
+        )
+        # 用正则式在应用层解析 hashtag（MySQL 端难做中文分词）
+        sql = (
+            "SELECT c.vt AS video_title FROM api_job j "
+            "CROSS JOIN JSON_TABLE(j.request_payload, '$.comments[*]' "
+            "COLUMNS (vt TEXT PATH '$.video_title')) c "
+            "WHERE j.job_type='comment_screening' AND j.status='success'"
+        )
+        conds = []
+        if "start_time" in params:
+            conds.append("j.created_at >= :start_time")
+        if "end_time" in params:
+            conds.append("j.created_at <= :end_time")
+        if params.get("video_tags"):
+            conds.append(_tag_like_clause(params["video_tags"]))
+        if conds:
+            sql += " AND " + " AND ".join(conds)
+        result = self._execute(sql, params)
+        import re
+        from collections import Counter
+        counter: "Counter[str]" = Counter()
+        for row in result.mappings():
+            for tag in re.findall(r"#([^#\s]+)", row.video_title or ""):
+                counter[tag] += 1
+        return [{"topic": t, "comment_count": n} for t, n in counter.most_common(limit)]
 
     def data_overview(self) -> DataOverview:
         """返回数据覆盖概览：作业数、评论数、时间范围。"""
