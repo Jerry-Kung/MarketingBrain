@@ -49,11 +49,18 @@ def _snap():
     )
 
 
+def _assert_window_and_tags(kw):
+    """断言调用参数携带与快照一致的时间窗与对象标签（口径一致）。"""
+    assert kw["start_time"] == datetime(2026, 8, 1)
+    assert kw["end_time"] == datetime(2026, 8, 31)
+    assert kw["video_tags"] == ["坦克300"]
+
+
 class TestTools:
-    def _run(self, fn):
+    def _run(self, fn, **kwargs):
         ds = FakeDS()
         store = EvidenceStore("t1")
-        out = fn(ds, _snap(), store)
+        out = fn(ds, _snap(), store, **kwargs)
         return ds, store, out
 
     def test_data_coverage(self):
@@ -61,36 +68,80 @@ class TestTools:
         assert out["name"] == "data_coverage"
         assert out["sample_size"] > 0
         assert store.all_records()  # 应登记统计证据
+        # 数据源调用应携带与快照一致的时间窗/标签
+        _assert_window_and_tags(ds._calls[-1][1])
 
     def test_volume_trend(self):
         ds, store, out = self._run(volume_trend)
         assert out["result"]["total"] == 100
         assert out["evidence_ids"]
+        assert ds._calls[-1][0] == "ts"
+        _assert_window_and_tags(ds._calls[-1][1])
 
     def test_period_comparison_has_change_rate(self):
         ds, store, out = self._run(period_comparison)
         assert "change_rate" in out["result"] or "current" in out["result"]
+        # 两次 count_comments 调用：当前窗口 + 等长前一周期
+        assert len(ds._calls) == 2
+        assert ds._calls[0][0] == "count"
+        _assert_window_and_tags(ds._calls[0][1])
+        assert ds._calls[1][0] == "count"
+        assert ds._calls[1][1]["start_time"] == datetime(2026, 7, 2)
+        assert ds._calls[1][1]["end_time"] == datetime(2026, 8, 1)
+        assert ds._calls[1][1]["video_tags"] == ["坦克300"]
 
     def test_topic_frequency_tool(self):
         ds, store, out = self._run(topic_frequency_tool)
         assert any(t["topic"] == "油耗" for t in out["result"]["topics"])
+        assert out["name"] == "topic_frequency_tool"
+        assert ds._calls[-1][0] == "topic"
+        _assert_window_and_tags(ds._calls[-1][1])
 
     def test_top_sources(self):
         ds, store, out = self._run(top_sources)
         assert out["result"]["videos"][0]["job_id"] == "j1"
+        assert ds._calls[-1][0] == "top"
+        _assert_window_and_tags(ds._calls[-1][1])
 
     def test_sample_comments_registers_evidence(self):
         ds, store, out = self._run(sample_comments)
         assert out["sample_size"] >= 2
         assert store.has_comment("c1")
+        assert ds._calls[-1][0] == "fetch"
+        _assert_window_and_tags(ds._calls[-1][1])
+
+    def test_sample_comments_evidence_ids_exactly_match_registered_comments(self):
+        ds, store, out = self._run(sample_comments)
+        expected_ids = {store._comments["c1"].evidence_id, store._comments["c2"].evidence_id}
+        assert set(out["evidence_ids"]) == expected_ids
+        assert len(out["evidence_ids"]) == 2
+
+    def test_evidence_ids_per_call_not_cumulative_across_tools(self):
+        ds = FakeDS()
+        store = EvidenceStore("t1")
+        cov_out = data_coverage(ds, _snap(), store)
+        sample_out = sample_comments(ds, _snap(), store)
+        # sample_comments 的 evidence_ids 不应包含 data_coverage 登记的统计证据
+        assert cov_out["evidence_ids"][0] not in sample_out["evidence_ids"]
+        assert len(sample_out["evidence_ids"]) == 2
 
     def test_drill_evidence(self):
         ds, store, out = self._run(drill_evidence)
         assert "keywords" in out["params"] or "result" in out
+        assert ds._calls[-1][0] == "fetch"
+        _assert_window_and_tags(ds._calls[-1][1])
 
     def test_object_compare(self):
         ds, store, out = self._run(object_compare)
         assert out["name"] == "object_compare"
+        _assert_window_and_tags(ds._calls[-1][1])
+
+    def test_object_compare_no_other_tags_not_compared(self):
+        ds, store, out = self._run(object_compare)
+        assert out["result"]["compared"] is False
+        assert out["result"]["other_count"] is None
+        # 未传 other_tags 时，只应发起一次 count_comments 调用（对象自身）
+        assert len(ds._calls) == 1
 
     def test_tools_register_stat_evidence(self):
         ds, store, out = self._run(data_coverage)
