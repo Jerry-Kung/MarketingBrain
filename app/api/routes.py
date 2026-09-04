@@ -40,6 +40,7 @@ def create_app(
     db_path: Optional[str] = None,
     datasource=None,
     settings: Optional[Settings] = None,
+    static_dir: Optional[str] = None,
 ) -> FastAPI:
     """创建 FastAPI 应用工厂。
 
@@ -47,6 +48,7 @@ def create_app(
         db_path: SQLite 应用状态库路径。None 时用 settings.APP_STATE_DIR。
         datasource: 数据源适配器。None 时健康检查/概览降级（无真实 DB）。
         settings: 配置。None 时自动加载。
+        static_dir: 前端构建产物目录。None 时用 app/static（Docker 多阶段构建放入）。
     """
     settings = settings or load_settings()
     if db_path is None:
@@ -80,25 +82,11 @@ def create_app(
         allow_headers=["*"],
     )
 
-    # 若存在前端构建产物（Docker 部署时由多阶段构建放入 app/static），
-    # 则挂载为静态目录，实现前后端同源由 FastAPI 统一提供。
-    # 本地开发时用 Vite dev server，此目录通常不存在，静默跳过。
-    try:
-        from fastapi.staticfiles import StaticFiles
-
-        static_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "static"
-        )
-        if os.path.isdir(static_dir):
-            app.mount("/static", StaticFiles(directory=static_dir), name="static")
-    except Exception:
-        pass
+    if static_dir is None:
+        static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 
     @app.get("/", include_in_schema=False)
     def index():
-        static_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "static"
-        )
         index_path = os.path.join(static_dir, "index.html")
         if os.path.exists(index_path):
             from fastapi.responses import FileResponse
@@ -181,6 +169,15 @@ def create_app(
                 available=False,
                 message=f"数据源读取失败: {e}",
             )
+
+    # 若存在前端构建产物（Docker 部署时由多阶段构建放入 app/static），
+    # 则挂载到根路径：Vite 产物中的资源引用为 /assets/*、/favicon.svg 等根路径。
+    # 必须在所有 API 路由注册之后挂载，根路径 mount 只兜底未匹配的请求。
+    # 本地开发时用 Vite dev server，此目录通常不存在，静默跳过。
+    if os.path.isdir(static_dir):
+        from fastapi.staticfiles import StaticFiles
+
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
     return app
 

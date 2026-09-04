@@ -76,3 +76,38 @@ class TestDataOverview:
         assert resp.status_code == 200
         body = resp.json()
         assert "available" in body
+
+
+class TestStaticFrontend:
+    """前端静态产物由 FastAPI 同源提供：Vite 产物引用根路径 /assets/*、/favicon.svg。"""
+
+    @pytest.fixture
+    def static_client(self, tmp_path):
+        from app.api.routes import create_app
+
+        static_dir = tmp_path / "static"
+        (static_dir / "assets").mkdir(parents=True)
+        (static_dir / "index.html").write_text(
+            '<script src="/assets/index-abc.js"></script>', encoding="utf-8"
+        )
+        (static_dir / "assets" / "index-abc.js").write_text("console.log(1)", encoding="utf-8")
+        (static_dir / "favicon.svg").write_text("<svg/>", encoding="utf-8")
+
+        app = create_app(
+            db_path=os.path.join(tmp_path, "app_state.db"),
+            datasource=None,
+            static_dir=str(static_dir),
+        )
+        return TestClient(app)
+
+    def test_index_served(self, static_client):
+        resp = static_client.get("/")
+        assert resp.status_code == 200
+        assert "/assets/index-abc.js" in resp.text
+
+    def test_assets_served_at_root(self, static_client):
+        assert static_client.get("/assets/index-abc.js").status_code == 200
+        assert static_client.get("/favicon.svg").status_code == 200
+
+    def test_api_still_takes_precedence(self, static_client):
+        assert static_client.get("/api/health").status_code == 200
