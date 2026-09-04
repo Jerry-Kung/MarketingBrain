@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **时间锚点只用 `job.created_at`（UTC）**，绝不用评论自带 `comment_time`（实测不可靠）。
-- **对象匹配用 `video_title LIKE '%#tag%'`**（话题标签），不用标题子串 `LIKE`（会把竞品对比视频误算进来，实测噪音约 4 倍）。
+- **对象匹配用 `video_title LIKE '%#tag%'`**（前导 `#` 紧贴对象，尾部不要求 `#`，标签间以空格/换行分隔），不用标题子串 `LIKE`（会把竞品对比视频误算进来，实测噪音约 4 倍）。
 - **视频（来源）ID = `api_job.id`**；评论 ID = 展开后的 `comment_id`。
 - **只读**：数据源账号仅 SELECT，每个连接强制 `SET SESSION TRANSACTION READ ONLY`；调用方不能传任意 SQL。
 - **模型不直接连库、不执行任意 SQL**：LLM 只看到喂给它的证据与统计，只能引用已有证据 ID。
@@ -555,7 +555,7 @@ class TestTagFilter:
     def test_single_tag_clause(self):
         sql = _tag_like_clause(["坦克300"])
         assert "like" in sql.lower() or "#" in sql
-        assert "%#坦克300#%" in sql
+        assert "%#坦克300%" in sql
 
     def test_multiple_tags_or(self):
         sql = _tag_like_clause(["坦克300", "坦克500"])
@@ -663,11 +663,14 @@ def build_comment_query(*, filters=True):
 def _tag_like_clause(video_tags):
     """根据话题标签列表生成 video_title 匹配的子句（不用标题子串，防竞品误算）。
 
-    返回形如 "(c.vt LIKE '%#坦克300#%' OR c.vt LIKE '%#坦克500#%')" 或 None。
+    返回形如 "(c.vt LIKE '%#坦克300%' OR c.vt LIKE '%#坦克500%')" 或 None。
+    标签间以空格/换行分隔，尾部不要求 #。标签值转义单引号。
     """
     if not video_tags:
         return None
-    clause = " OR ".join(f"c.vt LIKE '%#{t}#%'" for t in video_tags if t)
+    clause = " OR ".join(
+        f"c.vt LIKE '%#{str(t).replace(chr(39), chr(39)*2)}%'" for t in video_tags if t
+    )
     return f"({clause})" if clause else None
 
 
@@ -869,7 +872,7 @@ def _aggregate_time_series(rows, start, end, bucket="day"):
         from collections import Counter
         counter = Counter()
         for row in result.mappings():
-            for tag in re.findall(r"#([^#\s]+)#", row.video_title or ""):
+            for tag in re.findall(r"#([^#\s]+)", row.video_title or ""):
                 counter[tag] += 1
         return [{"topic": t, "comment_count": n} for t, n in counter.most_common(limit)]
 ```
