@@ -114,6 +114,8 @@ def test_time_series_shape(ds):
 
 
 def test_top_videos(ds):
+    """按 video_title 聚合：同一视频常跨多个 job（单 job 上限 50 条），
+    聚合后 Top 视频的评论数应能超过单 job 的 50 条上限，并带 job_count。"""
     vids = ds.top_videos(
         start_time=datetime(2026, 8, 1), end_time=datetime(2026, 8, 31),
         video_tags=["坦克300"], limit=5,
@@ -121,6 +123,8 @@ def test_top_videos(ds):
     assert len(vids) <= 5
     for v in vids:
         assert "job_id" in v and "video_title" in v
+    assert vids[0]["comment_count"] > 50
+    assert "job_count" in vids[0]
 
 
 def test_topic_frequency(ds):

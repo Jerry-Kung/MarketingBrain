@@ -271,15 +271,23 @@ class MySqlDataSource:
     def top_videos(self, *, start_time: Optional[datetime] = None,
                     end_time: Optional[datetime] = None, video_tags=None,
                     limit: int = 10) -> list[dict]:
-        """按评论数排序返回窗口内的 Top 视频（作业维度聚合）。"""
+        """按评论数排序返回窗口内的 Top 视频（按 video_title 聚合）。
+
+        一个 api_job 只是一批 <=50 条评论的采集批次，同一视频常拆分为多个
+        job（例如某标题在 8 月对应 32 个 job / 1510 条评论），因此按 job_id
+        聚合毫无意义（全部封顶在 50）。这里改为按 c.vt（video_title）聚合，
+        job_id 取该标题下最小的 job id 作为代表性来源标识，另附 job_count
+        说明该标题实际由多少个 job 汇总而来。
+        """
         params: dict = {}
         _build_comment_filters(
             params, start_time=start_time, end_time=end_time, video_tags=video_tags,
         )
         sql = (
-            "SELECT j.id AS job_id, c.vt AS video_title, "
+            "SELECT MIN(j.id) AS job_id, c.vt AS video_title, "
             "COUNT(*) AS comment_count, "
-            "COALESCE(SUM(c.like_count),0) AS like_sum "
+            "COALESCE(SUM(c.like_count),0) AS like_sum, "
+            "COUNT(DISTINCT j.id) AS job_count "
             "FROM api_job j CROSS JOIN JSON_TABLE(j.request_payload, '$.comments[*]' "
             "COLUMNS (cid VARCHAR(64) PATH '$.comment_id', "
             "vt TEXT PATH '$.video_title', `like_count` INT PATH '$.comment_like_count')) c "
@@ -294,12 +302,13 @@ class MySqlDataSource:
             conds.append(_tag_like_clause(params["video_tags"]))
         if conds:
             sql += " AND " + " AND ".join(conds)
-        sql += " GROUP BY j.id, c.vt ORDER BY comment_count DESC LIMIT :lim"
+        sql += " GROUP BY c.vt ORDER BY comment_count DESC LIMIT :lim"
         params["lim"] = int(limit)
         result = self._execute(sql, params)
         return [
-            {"job_id": row.job_id, "video_title": row.video_title or "",
-             "comment_count": int(row.comment_count or 0), "like_sum": int(row.like_sum or 0)}
+            {"job_id": str(row.job_id), "video_title": row.video_title or "",
+             "comment_count": int(row.comment_count or 0), "like_sum": int(row.like_sum or 0),
+             "job_count": int(row.job_count or 0)}
             for row in result.mappings()
         ]
 
