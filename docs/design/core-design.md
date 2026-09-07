@@ -1,8 +1,9 @@
-# Marketing Brain 设计文档（V0.1）
+# Marketing Brain 设计文档（V0.1 + V0.2）
 
 > 面向研发的设计要点：系统采用何种架构、模块如何分工、关键契约与决策。
 > 不重复代码中已有的函数签名、字段清单等实现细节，只记录意图、决策与边界。
-> 稳定的系统级架构见 `docs/architecture.md`，本稿聚焦 V0.1 已落地部分的功能点与业务契约。
+> 稳定的系统级架构见 `docs/architecture.md`，本稿聚焦已落地部分的功能点与业务契约。
+> V0.2 的模块设计要点与关键决策见 §7。
 
 ## 1. 产品定位与运行框架
 
@@ -111,3 +112,26 @@ V0.1 采用**规则 +关键词匹配**解析出 `AnalysisIntent`（分析对象 
 - 多 Agent 自由协作、自动舆情响应、长期记忆与经验进化；
 - 生产级高可用、微服务、分布式调度；
 - 用户权限、多租户、复杂图表平台。
+
+## 7. V0.2 模块设计要点与关键决策
+
+V0.2 在既有分层上新增三个子模块：`llm`、`analysis`、`pipeline`，不改既有模块对外接口。本版目标是**建立可对照的非 Agent 基线**。
+
+### 7.1 新增模块职责
+
+| 模块 | 职责 |
+|---|---|
+| `llm/provider.py` | OpenAI-compatible Provider。`httpx` 直连、不引入 openai SDK；核心是 `chat` / `chat_json`（后者请求 `response_format=json_object` 并校验）。每次调用返回结构化摘要（模型名、输入/输出 token、耗时）。抽象为接口，测试可用录制响应 stub 替换。 |
+| `llm/report.py` | 报告生成。把流水线结构化中间结果（统计 + 抽样评论 + 证据 ID）整理成上下文，调用一次 LLM 按固定输出协议生成「舆情策略包」JSON。 |
+| `analysis/tools.py` | 确定性统计工具集。V0.2 首批约 8 个（数据覆盖/质量、声量趋势、当前 vs 对比、主题词频、头部来源、分层抽样、下钻、对象比较）。所有工具自动附加快照边界，返回查询条件、统计结果、样本量与偏差提示。 |
+| `pipeline/baseline.py` | 固定流水线。阶段顺序硬编码、不做任何 LLM 自主规划，逐步产出结构化中间结果累积为 `AnalysisBundle`。 |
+| `pipeline/verify.py` | 报告引用校验。从报告提取引用的 `comment_id` / `job_id`，逐一对照本次运行的证据库；合法保留、非法剔除并记录到 `validation.rejected_refs`。 |
+| `pipeline/runner.py` | 任务执行器。用标准库 `threading` 后台执行，编排「取证 → 报告 → 校验 → 落库」，全程写追加式事件；失败保留错误、不生成伪报告。 |
+
+### 7.2 关键决策
+
+- **固定（非 Agent）流水线**：V0.2 明确不引入 Agent 规划/多步下钻，只为「数据取证 → 报告」建立一条写死的基线链路，供后续 V0.4 的 Agent 对照验证。两阶段 Agent 式分析是 V0.4，不在本版。
+- **报告是固定结构的「舆情策略包」**：一次 LLM 调用按固定输出协议产出，字段组含 `scope / overall / themes / sources / risk_opportunity / evidence_gaps / assumptions / actions / metrics`，作为后续版本契约打底。
+- **引用校验对着证据索引**：报告引用的证据 ID 必须来自喂给模型的证据库；未知 ID 直接剔除并在报告中标注，杜绝幻觉证据混入。
+- **推理模型需要大输出预算**：deepseek 系推理模型会把输出预算大量用于 `reasoning_content`，`max_tokens` 偏低会在推理阶段耗尽、最终答案为空（`finish_reason=length`）。实测需 `max_tokens` ~16000；报告请求超时用不低于 300s（覆盖默认的 120s）。
+- **后台线程 + 前端轮询**：`POST /api/tasks` 立即返回 `task_id`，后台线程驱动流水线，前端按 `UI_POLL_INTERVAL_MS` 轮询状态；运行中任务展示模型/Token/耗时。

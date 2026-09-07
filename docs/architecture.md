@@ -1,11 +1,11 @@
-# Marketing Brain V0.1 架构
+# Marketing Brain V0.1 + V0.2 架构
 
 > 系统级信息：系统边界、核心模块职责、分层、数据流、外部依赖、关键技术约束。
 > 变更系统形态时更新本文件。
 
 ## 1. 系统边界
 
-Marketing Brain V0 是一套面向汽车舆情分析的轻量受控 Agent Harness。V0.1 边界：
+Marketing Brain V0 是一套面向汽车舆情分析的轻量受控 Agent Harness。V0.1 + V0.2 边界：
 
 **V0.1 负责：**
 - 通过 Docker Compose 在测试环境启动；
@@ -14,10 +14,16 @@ Marketing Brain V0 是一套面向汽车舆情分析的轻量受控 Agent Harnes
 - 建立逻辑数据快照（记录边界，不复制数据）；
 - 持久化任务、运行事件、结果（SQLite）。
 
-**V0.1 不负责（后续版本）：**
-- LLM 报告生成（V0.2）；
+**V0.2 负责（非 Agent 基线）：**
+- 接入真实 LLM API；
+- 确定性统计工具集取证；
+- 固定流水线生成舆情策略包报告（一次 LLM 调用）；
+- 报告引用校验（未命中证据库的非法 ID 剔除）；
+- 后台线程执行 + 前端轮询查看状态/报告。
+
+**V0.2 不负责（后续版本）：**
 - 受控工作流/Skill 机制（V0.3）；
-- 主子 Agent Loop（V0.4）；
+- 主子 Agent Loop（V0.4，两阶段 Agent 式流程届时才引入）；
 - 完整审计可视化工作台（V0.5）。
 
 ## 2. 核心模块职责
@@ -30,6 +36,9 @@ Marketing Brain V0 是一套面向汽车舆情分析的轻量受控 Agent Harnes
 | 逻辑快照 | `app/snapshot/` | 记录数据边界（时间窗、最大ID），保证一次运行口径一致。 |
 | 状态存储 | `app/store/` | SQLite 持久化任务、事件、结果。通过 Repository 接口为 V1 换库留口。 |
 | API | `app/api/` | REST 端点：健康检查、任务创建/查询、数据概览。`create_app` 工厂便于测试注入。 |
+| LLM | `app/llm/` | OpenAI-compatible Provider（直连不做 SDK 封装）+ 舆情策略包报告生成。抽象为接口便于测试 stub。 |
+| 确定性分析工具 | `app/analysis/` | 工具集合，自动附加快照边界（时间窗 + 对象标签），返回查询条件、统计结果、样本量、证据 ID 与偏差提示。 |
+| 固定流水线 | `app/pipeline/` | 固定阶段顺序执行（数据取证 → LLM 报告 → 引用校验 → 落库），后台线程执行 + 前端轮询。 |
 
 ## 3. 分层与数据流
 
@@ -41,7 +50,10 @@ FastAPI (app/api)
    │
    ├── 任务理解 (understanding) ──► 结构化意图
    ├── 逻辑快照 (snapshot)      ──► 数据边界
-   ├── SQLite 存储 (store)      ──► 任务/事件/结果
+   ├── 确定性分析工具 (analysis) ──► 附加快照边界的统计取证
+   ├── 固定流水线 (pipeline)     ──► 后台线程：取证 → LLM 报告 → 引用校验 → 落库
+   ├── LLM (llm)               ──► OpenAI-compatible Provider + 策略包报告
+   ├── SQLite 存储 (store)      ──► 任务/事件/结果/证据
    └── 数据源 (datasource)      ──► 测试环境 MySQL（只读）
 ```
 
@@ -50,7 +62,7 @@ FastAPI (app/api)
 | 依赖 | 用途 | 关键约束 |
 |---|---|---|
 | 测试环境 MySQL (`drive_intent_backend.api_job`) | 舆情分析原始数据 | **只读账号**（仅 SELECT）。数据约 97 万条评论。 |
-| LLM API | V0.2 接入，V0.1 仅预留配置 | `.env` 配置 base_url / key / model。 |
+| LLM API | V0.2 已启用 | **OpenAI-compatible** 接口，`httpx` 直连（不引入 openai SDK）。`.env` 配置 base_url / key / model。推理模型输出预算大，报告请求需大 `max_tokens`（~16000）且超时 ≥300s。 |
 
 ## 5. 关键技术约束
 
@@ -60,6 +72,7 @@ FastAPI (app/api)
 4. **编码**：数据库 `utf8mb4`；Windows 终端默认非 UTF-8，脚本需 `sys.stdout.reconfigure(encoding='utf-8')`。
 5. **`like` 保留字**：`api_job` 取数 SQL 中 `comment_like_count` 列需反引号转义。
 6. **数据字段**：`preset_brand` / `preset_model` 为 NULL 不可用；品牌/车型/话题需从 `video_title` 提取。
+7. **V0.2 数据口径（已实测确认）**：时间锚点统一用 `api_job.created_at`（UTC），不用评论自带时间（后者不可靠）；对象匹配用 `video_title` 中的 `#话题标签`，不做标题子串 `LIKE`（会把竞品对比视频误算进声量）；「来源（视频）」身份 = `video_title`（同一视频横跨数十个作业，单个作业为 **≤50 条评论的批次**），头部来源按 `video_title` 聚合并以代表性 `job_id`（该标题下最小 `api_job.id`）作为可回查的溯源 ID。
 
 ## 6. 部署
 
