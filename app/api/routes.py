@@ -32,11 +32,18 @@ def _task_to_response(task) -> TaskResponse:
         raw_input=task.raw_input,
         parsed_intent=task.parsed_intent,
         snapshot=task.snapshot,
+        skill_name=task.skill_name,
         created_at=task.created_at,
         updated_at=task.updated_at,
         result=task.result,
         error=task.error,
     )
+
+
+def _select_skill(goal_type: str) -> str:
+    """根据意图目标类型选择 Skill（V0.3 简化映射）。"""
+    # V0.3 目前只有一个 Skill，直接返回默认
+    return "opinion-pulse"
 
 
 def create_app(
@@ -47,6 +54,7 @@ def create_app(
     *,
     llm_provider=None,
     background: bool = True,
+    settings_override: Optional[Settings] = None,
 ) -> FastAPI:
     """创建 FastAPI 应用工厂。
 
@@ -58,8 +66,9 @@ def create_app(
         llm_provider: LLM Provider（测试注入 mock）。None 时尝试按配置构建，
             仍无配置则任务标记失败（不 500）。
         background: True 后台线程执行任务；False 同步执行（便于测试）。
+        settings_override: settings 的别名，兼容测试用法（两者取其一，优先 settings_override）。
     """
-    settings = settings or load_settings()
+    settings = settings_override or settings or load_settings()
 
     # 注入 LLM Provider：外部（测试）传参优先，否则用配置构建。
     # 配置缺失（无 LLM_API_BASE/KEY/MODEL）时保持 None，不在此处抛错，
@@ -135,6 +144,7 @@ def create_app(
 
     @app.post("/api/tasks", response_model=TaskResponse)
     def create_task(req: CreateTaskRequest):
+        """创建分析任务（V0.3 支持 Skill 工作流）。"""
         # 任务理解/意图识别
         intent = parser.parse(req.raw_input)
         # Controller 裁定 P5：无时间短语时默认最近 30 天窗口（与「近期」约定一致）
@@ -151,6 +161,13 @@ def create_app(
             snap.extra = dict(snap.extra or {})
             snap.extra.setdefault("video_tags", [intent.object])
 
+        # 根据配置和执行模式决定是否启用 V0.3 工作流引擎
+        # background=False（同步测试模式）保持 V0.2 基线路径，不走工作流
+        use_workflow = settings.ENABLE_WORKFLOW_ENGINE and background
+
+        # 选择 Skill（V0.3 简化映射：goal_type -> skill_name）
+        skill_name = _select_skill(intent.goal_type) if use_workflow else None
+
         # Controller 裁定 P2：LLM 未配置时不运行、不 500，直接标记失败
         if llm_provider is None:
             err = "LLM 未配置（缺少 LLM_API_BASE/LLM_API_KEY/LLM_MODEL）"
@@ -158,6 +175,7 @@ def create_app(
                 raw_input=req.raw_input,
                 parsed_intent=intent.to_dict(),
                 snapshot=snap.to_dict(),
+                skill_name=skill_name,
             )
             event_repo.append_event(
                 task.task_id, "task_created",
@@ -174,6 +192,7 @@ def create_app(
             raw_input=req.raw_input,
             parsed_intent=intent.to_dict(),
             snapshot=snap.to_dict(),
+            skill_name=skill_name,
         )
         # 记录任务创建事件
         event_repo.append_event(
@@ -186,13 +205,27 @@ def create_app(
         if _ds is None:
             return _task_to_response(task)
 
-        if background:
+        if use_workflow:
+            # V0.3 工作流引擎后台执行
+            from app.workflow.runner import start_workflow_background
+            start_workflow_background(
+                task.task_id,
+                skill_name,
+                task_repo=task_repo,
+                event_repo=event_repo,
+                datasource=_ds,
+                llm_provider=llm_provider,
+                settings=settings,
+            )
+        elif background:
+            # V0.2 基线流水线后台执行（保留不变）
             from app.pipeline.runner import start_task_background
             start_task_background(
                 task_id=task.task_id, task_repo=task_repo, event_repo=event_repo,
                 datasource=_ds, llm_provider=llm_provider, settings=settings,
             )
         else:
+            # V0.2 基线流水线同步执行（background=False，测试专用）
             from app.pipeline.runner import run_task_sync
             run_task_sync(
                 task.task_id, task_repo=task_repo, event_repo=event_repo,

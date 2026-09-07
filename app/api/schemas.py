@@ -25,6 +25,7 @@ class TaskResponse(BaseModel):
     raw_input: str
     parsed_intent: dict
     snapshot: dict
+    skill_name: Optional[str] = None  # V0.3 Skill 名称
     created_at: str
     updated_at: str
     result: Optional[dict] = None
