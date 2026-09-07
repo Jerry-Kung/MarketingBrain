@@ -71,11 +71,14 @@ class LLMProvider:
             timeout=settings.llm_timeout,
         )
 
-    def _client(self) -> httpx.Client:
-        return httpx.Client(timeout=self.timeout, transport=self._transport)
+    def _client(self, timeout=None) -> httpx.Client:
+        return httpx.Client(
+            timeout=self.timeout if timeout is None else timeout,
+            transport=self._transport,
+        )
 
     def chat(self, messages, *, response_format=None, temperature=None,
-             max_tokens=None) -> LLMResult:
+             max_tokens=None, timeout=None) -> LLMResult:
         body = {
             "model": self.model,
             "messages": messages,
@@ -89,7 +92,7 @@ class LLMProvider:
         url = f"{self.base_url}/chat/completions"
         started = time.monotonic()
         try:
-            with self._client() as client:
+            with self._client(timeout=timeout) as client:
                 resp = client.post(
                     url,
                     headers={

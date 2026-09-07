@@ -66,6 +66,16 @@ def build_report_messages(bundle: "AnalysisBundle", intent: dict) -> list[dict]:
     ]
 
 
+# 报告生成的输出上限。deepseek 系推理模型会把输出预算大量用于 reasoning_content，
+# 若上限偏低会在推理阶段耗尽、最终答案为空（finish_reason=length）。实测需 ~16000。
+REPORT_MAX_TOKENS = 16000
+
+
+def _build_report_provider_timeout(provider) -> float:
+    """报告生成较慢（大上下文 + 长输出），故用不低于 300s 的超时。"""
+    return max(300.0, getattr(provider, "timeout", 300.0))
+
+
 def generate_strategy_pack(bundle, provider, intent=None):
     """调用 LLM 生成策略包。返回 (report_dict, llm_result)。
 
@@ -73,5 +83,8 @@ def generate_strategy_pack(bundle, provider, intent=None):
     缺省透传空 dict。
     """
     messages = build_report_messages(bundle, intent or {})
-    data, result = provider.chat_json(messages, max_tokens=4000)
+    data, result = provider.chat_json(
+        messages, max_tokens=REPORT_MAX_TOKENS,
+        timeout=_build_report_provider_timeout(provider),
+    )
     return data, result

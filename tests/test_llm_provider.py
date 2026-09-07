@@ -100,3 +100,20 @@ class TestLLMProvider:
         p = LLMProvider.from_settings(s)
         assert p.model == "m"
         assert p.base_url == "https://llm.example.com/v1"
+
+    def test_chat_accepts_timeout_override(self):
+        """Controller 冒烟修复：chat/chat_json 需支持按调用覆盖超时（长输出 >300s）。"""
+        seen = {}
+        def handler(request):
+            seen["timeout"] = request.extensions.get("timeout")
+            return httpx.Response(200, json={
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            })
+        transport = httpx.MockTransport(handler)
+        p = LLMProvider("https://llm.example.com/v1", "k", "m", transport=transport)
+        # 不传入时用实例默认
+        p.chat([{"role": "user", "content": "x"}])
+        # 显式覆盖时不报错且可用（MockTransport 不实际等待）
+        res = p.chat([{"role": "user", "content": "x"}], timeout=300.0)
+        assert res.content == "ok"
