@@ -3,13 +3,10 @@
 测试通过真实 .env 加载和缺项提示，验证 app.core.config.Settings 的行为。
 """
 import os
-from pathlib import Path
 
 import pytest
 
-from app.core.config import Settings, load_settings
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from app.core.config import Settings, load_settings, PROJECT_ROOT
 
 
 @pytest.fixture
@@ -98,3 +95,8 @@ def test_v03_workflow_config():
     assert settings.WORKFLOW_STAGE_TIMEOUT_MS == 300000
     assert settings.ENABLE_WORKFLOW_ENGINE is True
     assert settings.workflow_stage_timeout == 300.0
+
+    # skills_dir 相对路径锚定到项目根，不依赖进程 CWD
+    assert settings.skills_dir == PROJECT_ROOT / "skills"
+    assert settings.skills_dir.is_absolute()
+    assert settings.skills_dir.exists()

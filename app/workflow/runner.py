@@ -20,7 +20,7 @@ def run_workflow_sync(
 
         # 加载 Skill
         from app.skill.loader import SkillLoader
-        loader = SkillLoader(skills_dir=settings.SKILLS_DIR)
+        loader = SkillLoader(skills_dir=settings.skills_dir)
         skill = loader.load(skill_name)
 
         # 重建快照

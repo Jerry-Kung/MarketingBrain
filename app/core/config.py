@@ -100,6 +100,18 @@ class Settings(BaseSettings):
         """工作流单阶段超时（秒）。"""
         return self.WORKFLOW_STAGE_TIMEOUT_MS / 1000.0
 
+    @property
+    def skills_dir(self) -> Path:
+        """技能目录。
+
+        相对路径（默认 "skills"）锚定到项目根，与 APP_STATE_DIR 的处理一致，
+        避免按进程 CWD 解析导致加载失败。
+        """
+        path = Path(self.SKILLS_DIR)
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return path
+
     def model_post_init(self, __context) -> None:
         """在对象初始化完成后校验必需数据库配置。"""
         self._validate_required_db()

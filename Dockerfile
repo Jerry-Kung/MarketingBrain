@@ -29,6 +29,9 @@ COPY app/ ./app/
 COPY docs/ ./docs/
 COPY scripts/ ./scripts/
 
+# 拷贝 Skill 定义（V0.3 工作流引擎加载 skills/*.yaml）
+COPY skills/ ./skills/
+
 # 拷贝前端构建产物到 FastAPI 静态目录
 # （由 app.api.routes 挂载 / 提供 index.html）
 COPY --from=frontend-build /build/page/dist/ ./app/static/
