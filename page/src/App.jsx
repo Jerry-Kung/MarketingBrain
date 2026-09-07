@@ -82,8 +82,12 @@ function App() {
       }
     } catch (e) {
       if (taskIdRef.current !== taskId) return
-      setSelectedTask({ task_id: taskId, status: 'failed', error: String(e) })
-      stopPolling()
+      // 瞬时错误（如网络抖动）不视为终态：保留当前状态继续轮询，下次成功取到真实状态后自动纠正
+      setSelectedTask((prev) => (
+        prev
+          ? { ...prev, error: String(e) }
+          : { task_id: taskId, status: 'running', error: String(e) }
+      ))
     }
   }
 
