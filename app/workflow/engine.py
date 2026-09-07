@@ -116,7 +116,7 @@ class WorkflowEngine:
                 task_id, "stage_done", {"stage": stage.name}
             )
 
-        except (ToolNotFoundError, JsonSchemaValidationError) as e:
+        except (ToolNotFoundError, WorkflowExecutionError) as e:
             self.event_repo.append_event(
                 task_id,
                 "stage_failed",
@@ -126,6 +126,8 @@ class WorkflowEngine:
                     "error_type": type(e).__name__,
                 },
             )
+            if isinstance(e, WorkflowExecutionError):
+                raise
             raise WorkflowExecutionError(
                 f"Stage '{stage.name}' execution failed: {e}"
             ) from e
