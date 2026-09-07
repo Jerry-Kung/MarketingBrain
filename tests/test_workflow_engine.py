@@ -4,7 +4,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import json
-import tempfile
 import pytest
 
 from app.workflow.engine import (
@@ -50,11 +49,9 @@ class FakeLLMProvider:
 
 
 class TestWorkflowEngine:
-    def _setup(self):
+    def _setup(self, tmp_path):
         """创建测试用临时数据库与组件。"""
-        db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        db_path = db_file.name
-        db_file.close()
+        db_path = str(tmp_path / "test.db")
 
         task_repo = TaskRepository(db_path)
         task_repo.init_schema()
@@ -94,9 +91,9 @@ class TestWorkflowEngine:
 
         return task_repo, event_repo, skill, snap, ds, store, llm
 
-    def test_workflow_executes_all_stages(self):
+    def test_workflow_executes_all_stages(self, tmp_path):
         """测试工作流按顺序执行所有 stages。"""
-        task_repo, event_repo, skill, snap, ds, store, llm = self._setup()
+        task_repo, event_repo, skill, snap, ds, store, llm = self._setup(tmp_path)
 
         task = task_repo.create_task(
             raw_input="测试",
@@ -105,10 +102,12 @@ class TestWorkflowEngine:
             skill_name="test-skill",
         )
 
-        engine = WorkflowEngine(skill, ds, snap, store, llm, task_repo, event_repo)
+        engine = WorkflowEngine(skill, ds, snap, store, llm, task_repo, event_repo,
+                                stage_timeout=30.0)
         result = engine.run(task.task_id)
 
-        assert result["report"]["title"] == "V0.3 工作流报告"
+        # C2：报告取自最后一个 stage 的已验证输出（FakeLLM 返回 {"ok": true}）
+        assert result["report"] == {"ok": True}
 
         # 验证事件记录
         events = event_repo.get_events(task.task_id)
@@ -117,9 +116,9 @@ class TestWorkflowEngine:
         assert event_types.count("stage_start") == 2
         assert event_types.count("stage_done") == 2
 
-    def test_unauthorized_tool_call_raises_error(self):
+    def test_unauthorized_tool_call_raises_error(self, tmp_path):
         """测试未授权工具调用抛出 ToolAuthorizationError。"""
-        task_repo, event_repo, skill, snap, ds, store, llm = self._setup()
+        task_repo, event_repo, skill, snap, ds, store, llm = self._setup(tmp_path)
 
         task = task_repo.create_task(
             raw_input="测试",
@@ -130,16 +129,16 @@ class TestWorkflowEngine:
 
         engine = WorkflowEngine(skill, ds, snap, store, llm, task_repo, event_repo)
 
-        # Patch _mock_llm_response 返回未授权工具
-        original_mock = engine._mock_llm_response
-        def patched_mock(stage):
+        # Patch _call_llm_for_stage 返回未授权工具
+        original_call = engine._call_llm_for_stage
+        def patched_call(stage):
             if stage.name == "investigate":
                 return {
                     "content": json.dumps({"ok": True}),
                     "tool_calls": [{"name": "drill_evidence", "arguments": {}}],
                 }
-            return original_mock(stage)
-        engine._mock_llm_response = patched_mock
+            return original_call(stage)
+        engine._call_llm_for_stage = patched_call
 
         with pytest.raises(ToolAuthorizationError, match="unauthorized tool call"):
             engine.run(task.task_id)
@@ -150,9 +149,9 @@ class TestWorkflowEngine:
         assert len(unauthorized_events) == 1
         assert unauthorized_events[0].payload["tool"] == "drill_evidence"
 
-    def test_stage_output_schema_validation(self):
+    def test_stage_output_schema_validation(self, tmp_path):
         """测试 Stage 输出 schema 校验失败抛出 WorkflowExecutionError。"""
-        task_repo, event_repo, skill, snap, ds, store, llm = self._setup()
+        task_repo, event_repo, skill, snap, ds, store, llm = self._setup(tmp_path)
 
         task = task_repo.create_task(
             raw_input="测试",
@@ -163,16 +162,58 @@ class TestWorkflowEngine:
 
         engine = WorkflowEngine(skill, ds, snap, store, llm, task_repo, event_repo)
 
-        # Patch _mock_llm_response 返回不符合 schema 的输出（snapshot stage 要求 "ok" 字段）
-        original_mock = engine._mock_llm_response
-        def patched_mock(stage):
+        # Patch _call_llm_for_stage 返回不符合 schema 的输出（snapshot stage 要求 "ok" 字段）
+        original_call = engine._call_llm_for_stage
+        def patched_call(stage):
             if stage.name == "snapshot":
                 return {
                     "content": json.dumps({"wrong_field": True}),  # 缺少 "ok"
                     "tool_calls": [],
                 }
-            return original_mock(stage)
-        engine._mock_llm_response = patched_mock
+            return original_call(stage)
+        engine._call_llm_for_stage = patched_call
 
         with pytest.raises(WorkflowExecutionError, match="does not match schema"):
             engine.run(task.task_id)
+
+    def test_assumption_and_judgment_are_registered(self, tmp_path):
+        """I2：stage 输出含 assumptions/judgments 时登记并发射事件。"""
+        task_repo, event_repo, skill, snap, ds, store, llm = self._setup(tmp_path)
+
+        task = task_repo.create_task(
+            raw_input="测试",
+            parsed_intent={},
+            snapshot=snap.to_dict(),
+            skill_name="test-skill",
+        )
+
+        engine = WorkflowEngine(skill, ds, snap, store, llm, task_repo, event_repo)
+
+        original_call = engine._call_llm_for_stage
+        def patched_call(stage):
+            if stage.name == "investigate":
+                return {
+                    "content": json.dumps({
+                        "ok": True,
+                        "judgments": [{"judgment_type": "risk", "title": "油耗争议"}],
+                        "assumptions": [{"title": "样本有偏", "rationale": "仅抽样"}],
+                    }),
+                    "tool_calls": [],
+                }
+            return original_call(stage)
+        engine._call_llm_for_stage = patched_call
+
+        result = engine.run(task.task_id)
+
+        # 判断与假设都已登记（judgment 无显式 evidence_refs 时默认引用当刻证据）
+        kinds = [r.kind for r in store.all_records()]
+        assert "judgment" in kinds
+        assert "assumption" in kinds
+
+        # 事件被发射
+        events = event_repo.get_events(task.task_id)
+        assert any(e.event_type == "judgment_made" for e in events)
+        assert any(e.event_type == "assumption_added" for e in events)
+
+        # report 取自最后一个 stage（investigate）的已验证输出
+        assert result["report"]["ok"] is True

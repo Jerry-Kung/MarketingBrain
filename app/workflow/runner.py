@@ -1,4 +1,4 @@
-"""工作流后台运行器（替代 V0.2 的 BaselinePipeline runner）。"""
+"""与 V0.2 BaselinePipeline 并行的 V0.3 工作流后台运行器。"""
 import threading
 
 
@@ -33,7 +33,8 @@ def run_workflow_sync(
         from app.workflow.engine import WorkflowEngine
         engine = WorkflowEngine(
             skill, datasource, snapshot, evidence_store,
-            llm_provider, task_repo, event_repo
+            llm_provider, task_repo, event_repo,
+            stage_timeout=settings.workflow_stage_timeout,
         )
 
         result = engine.run(task_id)

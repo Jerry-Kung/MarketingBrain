@@ -4,25 +4,22 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import tempfile
-
 from fastapi.testclient import TestClient
 
 
-def test_create_task_with_workflow():
+def test_create_task_with_workflow(tmp_path):
     """测试创建任务时选择 Skill 并启动工作流（ENABLE_WORKFLOW_ENGINE=True）。"""
     from app.api.routes import create_app
     from app.core.config import Settings
 
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = f.name
+    db_path = str(tmp_path / "test.db")
 
     settings = Settings(
         DB_HOST="localhost", DB_PORT=3306, DB_USER="test",
         DB_PASSWORD="pwd", DB_NAME="db",
         LLM_API_BASE="https://api.example.com",
         LLM_API_KEY="key", LLM_MODEL="model",
-        APP_STATE_DIR=str(Path(db_path).parent),
+        APP_STATE_DIR=str(tmp_path),
         ENABLE_WORKFLOW_ENGINE=True,
         SKILLS_DIR="skills",
     )
@@ -45,20 +42,19 @@ def test_create_task_with_workflow():
     assert data["skill_name"] == "opinion-pulse"  # V0.3 默认 Skill
 
 
-def test_v02_baseline_mode():
+def test_v02_baseline_mode(tmp_path):
     """测试关闭 ENABLE_WORKFLOW_ENGINE 时回退到 V0.2 基线（skill_name 为 None）。"""
     from app.api.routes import create_app
     from app.core.config import Settings
 
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = f.name
+    db_path = str(tmp_path / "test.db")
 
     settings = Settings(
         DB_HOST="localhost", DB_PORT=3306, DB_USER="test",
         DB_PASSWORD="pwd", DB_NAME="db",
         LLM_API_BASE="https://api.example.com",
         LLM_API_KEY="key", LLM_MODEL="model",
-        APP_STATE_DIR=str(Path(db_path).parent),
+        APP_STATE_DIR=str(tmp_path),
         ENABLE_WORKFLOW_ENGINE=False,
         SKILLS_DIR="skills",
     )

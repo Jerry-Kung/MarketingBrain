@@ -159,7 +159,13 @@ V0.3 新增细粒度审计事件：
 - `stage_start` / `stage_done`：阶段开始/完成
 - `tool_call`：工具调用（含工具名、参数摘要、样本量）
 - `tool_unauthorized`：未授权工具调用被拒绝
-- `judgment_made`：登记结构化判断
+- `judgment_made`：登记结构化判断。
+  **发射条件**：某 stage 的 LLM 输出（通过 output_schema 校验后）含 `judgments` 或 `findings`
+  列表时，引擎逐一调用 `EvidenceStore.register_judgment` 并发射本事件。判断未显式给出
+  `evidence_refs` 时，默认引用该时刻已登记的全部证据（保证引用图非空、可校验）。
+- `assumption_added`：登记假设（无证据支撑的推测）。
+  **发射条件**：stage 输出含 `assumptions` 列表时，调用 `EvidenceStore.register_assumption`
+  并发射本事件。V0.3 目前默认机制预留，实际 Skill 尚未产出假设。
 
 ### V0.2 兼容
 

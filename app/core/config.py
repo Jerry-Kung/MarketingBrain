@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     WORKFLOW_STAGE_TIMEOUT_MS: int = Field(default=300000)
     ENABLE_WORKFLOW_ENGINE: bool = Field(default=True)
 
-    @field_validator("APP_PORT", "UI_POLL_INTERVAL_MS", "TOOL_MAX_RECORDS", "LLM_TIMEOUT_MS")
+    @field_validator("APP_PORT", "UI_POLL_INTERVAL_MS", "TOOL_MAX_RECORDS", "LLM_TIMEOUT_MS", "WORKFLOW_STAGE_TIMEOUT_MS")
     @classmethod
     def _positive_int(cls, v: int) -> int:
         if v <= 0:

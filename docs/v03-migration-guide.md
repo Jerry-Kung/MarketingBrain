@@ -39,7 +39,20 @@ ENABLE_WORKFLOW_ENGINE=true
 
 V0.3 在 `tasks` 表新增 `skill_name` 字段。无需手动迁移，`TaskRepository.init_schema()` 会自动创建。
 
-已有 V0.2 任务的 `skill_name` 为 `NULL`，前端展示为"基线模式 (V0.2)"。
+**V0.2 兼容**：`CREATE TABLE IF NOT EXISTS` 不会给已存在的 V0.2 `tasks` 表补列，
+故 `init_schema()` 会用 `PRAGMA table_info(tasks)` 检测 `skill_name` 列并执行
+`ALTER TABLE tasks ADD COLUMN skill_name TEXT`。已有 V0.2 任务的 `skill_name` 为 `NULL`，
+前端展示为"基线模式 (V0.2)"。
+
+### 3.1 判断与假设审计事件
+
+V0.3 工作流支持结构化判断/假设登记：
+
+- **`judgment_made`**：某 stage 的 LLM 输出（通过 output_schema 校验后）含 `judgments`
+  或 `findings` 列表时，引擎调用 `EvidenceStore.register_judgment` 并发射本事件。判断未给出
+  `evidence_refs` 时默认引用当刻已登记的全部证据。
+- **`assumption_added`**：stage 输出含 `assumptions` 列表时，调用
+  `EvidenceStore.register_assumption` 并发射本事件（V0.3 机制预留，尚无 Skill 产出假设）。
 
 ### 4. 验证 Skill 加载
 

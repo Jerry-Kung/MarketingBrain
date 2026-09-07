@@ -191,6 +191,11 @@ function App() {
           <section className="card">
             <div className="report-head">
               <h2>基线报告</h2>
+              <span className="report-mode">
+                {selectedTask?.skill_name
+                  ? `Skill: ${selectedTask.skill_name}`
+                  : '基线模式 (V0.2)'}
+              </span>
               <button className="primary" onClick={closeTask}>返回列表</button>
             </div>
             <ReportView task={selectedTask} result={selectedResult} />

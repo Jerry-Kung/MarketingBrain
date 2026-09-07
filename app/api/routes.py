@@ -42,10 +42,13 @@ def _task_to_response(task) -> TaskResponse:
     )
 
 
-def _select_skill(goal_type: str) -> str:
-    """根据意图目标类型选择 Skill（V0.3 简化映射）。"""
-    # V0.3 目前只有一个 Skill，直接返回默认
-    return "opinion-pulse"
+def _select_skill(goal_type: str, default_skill: str) -> str:
+    """根据意图目标类型选择 Skill。
+
+    V0.3 简化设计：目前只映射单一默认 Skill（settings.DEFAULT_SKILL），
+    忽略 goal_type 的具体取值。该参数保留给 V0.4 按 goal_type 扩展多 Skill 映射。
+    """
+    return default_skill
 
 
 def create_app(
@@ -167,8 +170,8 @@ def create_app(
         # background=False（同步测试模式）保持 V0.2 基线路径，不走工作流
         use_workflow = settings.ENABLE_WORKFLOW_ENGINE and background
 
-        # 选择 Skill（V0.3 简化映射：goal_type -> skill_name）
-        skill_name = _select_skill(intent.goal_type) if use_workflow else None
+        # 选择 Skill（V0.3 简化映射：goal_type -> skill_name，目前固定默认 Skill）
+        skill_name = _select_skill(intent.goal_type, settings.DEFAULT_SKILL) if use_workflow else None
 
         # Controller 裁定 P2：LLM 未配置时不运行、不 500，直接标记失败
         if llm_provider is None:

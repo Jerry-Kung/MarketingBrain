@@ -118,6 +118,15 @@ class TaskRepository(_SQLiteBase):
             )
             """
         )
+
+        # V0.2 迁移修复：CREATE TABLE IF NOT EXISTS 不会给已存在的 V0.2 tasks 表
+        # 添加 skill_name 列，而 _row_to_task 无条件读取该列，导致 V0.2 库
+        # get_task/list_tasks 抛 IndexError。此处用 PRAGMA 检查并补列。
+        cur = self._conn.execute("PRAGMA table_info(tasks)")
+        columns = {row["name"] for row in cur.fetchall()}
+        if "skill_name" not in columns:
+            self._conn.execute("ALTER TABLE tasks ADD COLUMN skill_name TEXT")
+
         self._conn.commit()
 
     def create_task(
