@@ -92,3 +92,26 @@ class TestV02:
         end = datetime.fromisoformat(snap["end_time"])
         delta = (end - start).days
         assert 29 <= delta <= 31, f"期望约 30 天窗口，实际 {delta} 天"
+
+    def test_llm_unconfigured_marks_task_failed(self, tmp_path):
+        """Controller 裁定 P2：LLM 未配置时不运行、不 500，任务标记失败。"""
+        from app.api.routes import create_app
+        from app.core.config import Settings
+
+        # DB 字段齐全通过 model_post_init 校验；LLM 三者置 None 模拟未配置
+        s = Settings(DB_HOST="h", DB_PORT=3306, DB_USER="u",
+                     DB_PASSWORD="p", DB_NAME="d",
+                     LLM_API_BASE=None, LLM_API_KEY=None, LLM_MODEL=None)
+        app = create_app(
+            db_path=os.path.join(tmp_path, "app_state.db"),
+            datasource=None, settings=s, llm_provider=None, background=False,
+        )
+        c = TestClient(app)
+        resp = c.post("/api/tasks", json={"raw_input": "分析坦克300近期"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "failed"
+        assert body["error"] == "LLM 未配置（缺少 LLM_API_BASE/LLM_API_KEY/LLM_MODEL）"
+        # result 默认空 dict（TaskRecord.result 默认 {}，非 None），
+        # 但仍表示“无结果”，与报告端点 not task.result 判定一致。
+        assert not body["result"]

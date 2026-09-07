@@ -15,6 +15,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi.testclient import TestClient
 
 
+class _MockLLM:
+    """被注入的 LLM stub：V0.1 用例 datasource=None，任务保持 pending，
+    不会走到 LLM 调用；此 stub 仅在意外触发时明确失败，避免静默通过。"""
+
+    def chat_json(self, messages, **kw):
+        raise AssertionError("V0.1 用例不应调用 LLM (datasource=None 任务保持 pending)")
+
+
 @pytest.fixture
 def client(tmp_path):
     """构造一个使用临时 SQLite 存储、stub 数据源的 FastAPI 应用。"""
@@ -25,7 +33,9 @@ def client(tmp_path):
     state_dir.mkdir(exist_ok=True)
     db_path = os.path.join(state_dir, "app_state.db")
 
-    app = create_app(db_path=db_path, datasource=None)  # None=禁用真实 DB（数据概览降级）
+    # 注入 mock LLM，使 POST /api/tasks 不依赖 .env 的 LLM 配置，
+    # 总走 datasource=None 的 pending 降级路径。
+    app = create_app(db_path=db_path, datasource=None, llm_provider=_MockLLM())
     return TestClient(app)
 
 

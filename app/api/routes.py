@@ -159,6 +159,10 @@ def create_app(
                 parsed_intent=intent.to_dict(),
                 snapshot=snap.to_dict(),
             )
+            event_repo.append_event(
+                task.task_id, "task_created",
+                {"raw_input": req.raw_input, "intent": intent.to_dict()},
+            )
             task_repo.mark_failed(task.task_id, err)
             event_repo.append_event(
                 task.task_id, "task_failed",
