@@ -26,6 +26,7 @@ class EvidenceRecord:
     has_purchase_intent: Optional[bool] = None
     source: str = ""
     extra: dict = field(default_factory=dict)
+    referenced_by: list[str] = field(default_factory=list)  # 被哪些 judgment 引用
 
     def to_dict(self) -> dict:
         return {
@@ -41,6 +42,7 @@ class EvidenceRecord:
             "has_purchase_intent": self.has_purchase_intent,
             "source": self.source,
             "extra": self.extra,
+            "referenced_by": self.referenced_by,
         }
 
 
@@ -115,6 +117,75 @@ class EvidenceStore:
             kind="stat",
             source=source,
             extra={"label": label, "detail": detail, "count": int(count)},
+        )
+        self._stats.append(ev)
+        return ev
+
+    def register_judgment(
+        self, *, judgment_type: str, title: str, evidence_refs: list[str], source: str
+    ) -> EvidenceRecord:
+        """登记结构化判断（风险/机会/主题），记录引用的证据 ID。
+
+        Args:
+            judgment_type: 判断类型（如 "risk", "opportunity", "theme"）
+            title: 判断标题（如 "油耗争议升级"）
+            evidence_refs: 引用的证据 ID 列表
+            source: 来源（如 "synthesize"）
+
+        Returns:
+            EvidenceRecord 实例（kind="judgment"）
+        """
+        ev = EvidenceRecord(
+            evidence_id=_new_id(),
+            kind="judgment",
+            source=source,
+            extra={
+                "judgment_type": judgment_type,
+                "title": title,
+                "evidence_refs": evidence_refs,
+            },
+        )
+        # 反向引用：更新被引用证据的 referenced_by 列表
+        # _comments/_videos 以 comment_id/job_id 为键，需按 evidence_id 遍历 values
+        for ref_id in evidence_refs:
+            found = False
+            for rec in self._comments.values():
+                if rec.evidence_id == ref_id:
+                    rec.referenced_by.append(ev.evidence_id)
+                    found = True
+                    break
+            if not found:
+                for rec in self._videos.values():
+                    if rec.evidence_id == ref_id:
+                        rec.referenced_by.append(ev.evidence_id)
+                        found = True
+                        break
+            if not found:
+                for stat in self._stats:
+                    if stat.evidence_id == ref_id:
+                        stat.referenced_by.append(ev.evidence_id)
+                        break
+        self._stats.append(ev)  # judgment 也放入 stats 列表
+        return ev
+
+    def register_assumption(
+        self, *, title: str, rationale: str, source: str
+    ) -> EvidenceRecord:
+        """登记假设（无证据支撑的推测）。
+
+        Args:
+            title: 假设标题
+            rationale: 理由
+            source: 来源
+
+        Returns:
+            EvidenceRecord 实例（kind="assumption"）
+        """
+        ev = EvidenceRecord(
+            evidence_id=_new_id(),
+            kind="assumption",
+            source=source,
+            extra={"title": title, "rationale": rationale},
         )
         self._stats.append(ev)
         return ev

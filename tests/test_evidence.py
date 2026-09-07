@@ -119,3 +119,61 @@ class TestEvidenceStore:
         assert len(store.all_records()) == 1
         # 验证源列表包含两个源
         assert rec2.extra.get("sources") == ["top", "drill"]
+
+
+class TestEvidenceReferenceGraph:
+    def test_register_judgment_with_evidence_refs(self):
+        """测试 judgment 登记并建立双向引用关系。"""
+        store = EvidenceStore(task_id="t1")
+        
+        # 登记评论证据
+        c1 = store.register_comment(_comment(cid="c1"), source="sample")
+        c2 = store.register_comment(_comment(cid="c2"), source="sample")
+        
+        # 登记 judgment 引用 c1, c2
+        j1 = store.register_judgment(
+            judgment_type="risk",
+            title="油耗争议升级",
+            evidence_refs=[c1.evidence_id, c2.evidence_id],
+            source="synthesize",
+        )
+        
+        assert j1.kind == "judgment"
+        assert j1.extra["judgment_type"] == "risk"
+        assert j1.extra["title"] == "油耗争议升级"
+        assert j1.extra["evidence_refs"] == [c1.evidence_id, c2.evidence_id]
+        
+        # 验证反向引用
+        assert c1.referenced_by == [j1.evidence_id]
+        assert c2.referenced_by == [j1.evidence_id]
+
+    def test_register_assumption(self):
+        """测试 assumption 登记。"""
+        store = EvidenceStore(task_id="t1")
+        a1 = store.register_assumption(
+            title="竞品可能跟进",
+            rationale="基于市场惯例推测",
+            source="synthesize",
+        )
+        
+        assert a1.kind == "assumption"
+        assert a1.extra["title"] == "竞品可能跟进"
+        assert a1.extra["rationale"] == "基于市场惯例推测"
+        assert a1.source == "synthesize"
+
+    def test_judgment_references_video_and_stat(self):
+        """测试 judgment 引用视频与统计证据。"""
+        store = EvidenceStore(task_id="t1")
+        
+        v1 = store.register_video(job_id="j1", video_title="坦克300", comment_count=100, source="top")
+        s1 = store.register_stat(label="total", detail="总评论数", count=1000, source="coverage")
+        
+        j1 = store.register_judgment(
+            judgment_type="opportunity",
+            title="高热度视频",
+            evidence_refs=[v1.evidence_id, s1.evidence_id],
+            source="synthesize",
+        )
+        
+        assert v1.referenced_by == [j1.evidence_id]
+        assert s1.referenced_by == [j1.evidence_id]
