@@ -133,3 +133,41 @@ def test_run_task_sync_report_done_event(repos):
     report_done = [e for e in events if e.event_type == "report_done"]
     assert len(report_done) == 1
     assert report_done[0].payload["usage"]["total_tokens"] == 15
+
+
+def test_run_task_sync_no_escape_on_task_missing(repos):
+    """任务不存在时返回错误 dict，绝不向 run_task_sync 外抛出异常。"""
+    tr, er = repos
+    result = run_task_sync(
+        "nope", task_repo=tr, event_repo=er,
+        datasource=FakeData(), llm_provider=MockLLM(), settings=None,
+    )
+    assert isinstance(result, dict)
+    assert "error" in result
+
+
+def test_run_task_sync_rerun_finished_is_noop(repos):
+    """已完成任务重跑为 no-op：返回 already、不覆盖已存结果、不追加事件。"""
+    tr, er = repos
+    task = tr.create_task(
+        raw_input="x", parsed_intent={"object": "坦克300", "goal_type": "pulse"},
+        snapshot=LogicalSnapshot(
+            start_time=datetime(2026, 8, 1), end_time=datetime(2026, 8, 31),
+            extra={"video_tags": ["坦克300"], "object": "坦克300"},
+        ).to_dict(),
+    )
+    first = run_task_sync(
+        task.task_id, task_repo=tr, event_repo=er,
+        datasource=FakeData(), llm_provider=MockLLM(), settings=None,
+    )
+    n_events_after_first = len(er.get_events(task.task_id))
+    second = run_task_sync(
+        task.task_id, task_repo=tr, event_repo=er,
+        datasource=FakeData(), llm_provider=MockLLM(), settings=None,
+    )
+    assert second == {"already": "success"}
+    # 结果未被覆盖（meta.total_tokens 不变），事件流未追加第二条
+    got = tr.get_task(task.task_id)
+    assert got.status == "success"
+    assert got.result["meta"]["total_tokens"] == 15
+    assert len(er.get_events(task.task_id)) == n_events_after_first
