@@ -1,0 +1,23 @@
+version: "0.3.0"
+name: "test-skill-v03"
+description: "测试用 Skill（V0.3）"
+
+stages:
+  - name: "snapshot"
+    system_prompt: "你是数据边界确认专员。"
+    tools: []
+    output_schema:
+      type: "object"
+      required: ["scope_confirmed"]
+      properties:
+        scope_confirmed:
+          type: "boolean"
+
+  - name: "investigate"
+    system_prompt: "你是舆情调查分析师。"
+    tools:
+      - data_coverage
+      - sample_comments
+    output_schema:
+      type: "object"
+      required: ["findings"]
