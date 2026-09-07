@@ -1,0 +1,51 @@
+version: "0.3.0"
+name: "opinion-pulse"
+description: "常规舆情脉搏分析：数据边界 → 调查分析 → 策略综合"
+
+stages:
+  - name: "snapshot"
+    system_prompt: |
+      你是数据边界确认专员。根据用户意图，确认本次分析的数据范围。
+      输出格式：{"scope_confirmed": true}
+    tools: []
+    output_schema:
+      type: "object"
+      required: ["scope_confirmed"]
+      properties:
+        scope_confirmed:
+          type: "boolean"
+
+  - name: "investigate"
+    system_prompt: |
+      你是舆情调查分析师。使用工具获取数据并识别关键主题、声量趋势、热门视频。
+      输出格式：{"findings": ["发现1", "发现2", ...]}
+    tools:
+      - data_coverage
+      - volume_trend
+      - period_comparison
+      - topic_frequency_tool
+      - top_sources
+      - sample_comments
+    output_schema:
+      type: "object"
+      required: ["findings"]
+      properties:
+        findings:
+          type: "array"
+          items:
+            type: "string"
+
+  - name: "synthesize"
+    system_prompt: |
+      你是策略综合专家。基于调查结果生成舆情策略包（风险、机会、建议）。
+      可使用 drill_evidence 补充证据细节。
+      输出格式：{"report": {"risks": [...], "opportunities": [...], "recommendations": [...]}}
+    tools:
+      - drill_evidence
+    output_schema:
+      type: "object"
+      required: ["report"]
+      properties:
+        report:
+          type: "object"
+          required: ["risks", "opportunities", "recommendations"]

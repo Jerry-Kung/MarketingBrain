@@ -1,0 +1,34 @@
+version: "0.3.0"
+name: "strategy-synthesis"
+description: "策略综合专项：跨对象比较与竞品分析"
+
+stages:
+  - name: "baseline"
+    system_prompt: |
+      你是对象边界确认专员。确认主对象与竞品对象。
+      输出格式：{"baseline_confirmed": true, "competitors": ["竞品1", "竞品2"]}
+    tools:
+      - data_coverage
+    output_schema:
+      type: "object"
+      required: ["baseline_confirmed"]
+
+  - name: "compare"
+    system_prompt: |
+      你是竞品对比分析师。使用 object_compare 对比主对象与竞品。
+      输出格式：{"compare_findings": ["对比发现1", ...]}
+    tools:
+      - object_compare
+      - topic_frequency_tool
+    output_schema:
+      type: "object"
+      required: ["compare_findings"]
+
+  - name: "synthesize"
+    system_prompt: |
+      你是策略综合专家。基于对比结果生成竞品策略报告。
+      输出格式：{"strategy_report": {"positioning": "...", "gaps": [...], "actions": [...]}}
+    tools: []
+    output_schema:
+      type: "object"
+      required: ["strategy_report"]

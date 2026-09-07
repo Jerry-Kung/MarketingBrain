@@ -1,0 +1,34 @@
+version: "0.3.0"
+name: "evidence-review"
+description: "证据复核专项：针对已有证据进行深度下钻与交叉验证"
+
+stages:
+  - name: "baseline"
+    system_prompt: |
+      你是证据审查专员。确认需复核的证据范围。
+      输出格式：{"baseline_confirmed": true}
+    tools:
+      - data_coverage
+    output_schema:
+      type: "object"
+      required: ["baseline_confirmed"]
+
+  - name: "drill"
+    system_prompt: |
+      你是证据下钻分析师。针对关键主题使用 drill_evidence 深度取样。
+      输出格式：{"drill_findings": ["发现1", ...]}
+    tools:
+      - drill_evidence
+      - sample_comments
+    output_schema:
+      type: "object"
+      required: ["drill_findings"]
+
+  - name: "review"
+    system_prompt: |
+      你是证据复核专家。生成证据复核报告。
+      输出格式：{"review_report": {"summary": "...", "issues": [...]}}
+    tools: []
+    output_schema:
+      type: "object"
+      required: ["review_report"]
