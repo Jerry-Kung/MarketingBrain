@@ -199,3 +199,147 @@ body {
   color: var(--muted);
   font-size: 0.8rem;
 }
+
+/* 任务列表项可点击，进入报告视图 */
+.task-item {
+  cursor: pointer;
+}
+
+.task-item-active {
+  background: var(--bg);
+  border-radius: 8px;
+}
+
+.task-meta {
+  color: #888;
+  font-size: 12px;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+/* 基线报告视图 */
+.report-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.report-head h2 {
+  margin: 0;
+}
+
+.report-head .primary {
+  margin-top: 0;
+}
+
+.report {
+  max-height: 60vh;
+  overflow: auto;
+  background: #f7f7f9;
+  padding: 12px;
+  border-radius: 6px;
+  white-space: normal;
+}
+
+/* 报告正文各区段 */
+.report-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.report-section {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.report-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.report-section h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.report-section p {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+}
+
+.report-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.report-list li {
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+}
+
+/* 键值对形式的报告字段 */
+.report-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.report-kv-row {
+  display: flex;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.report-kv-label {
+  flex: 0 0 auto;
+  color: var(--muted);
+  min-width: 72px;
+}
+
+.report-kv-value {
+  flex: 1;
+  word-break: break-word;
+}
+
+/* 证据引用文本 */
+.report-evidence-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.report-evidence {
+  display: flex;
+  gap: 6px;
+  font-size: 0.85rem;
+  background: var(--bg);
+  border-left: 2px solid var(--primary);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.report-evidence-id {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.report-evidence-text {
+  flex: 1;
+  word-break: break-word;
+}
+
+.report-validation {
+  margin: 8px 0 12px;
+}
+
+.report-validation .muted {
+  margin: 0;
+}
