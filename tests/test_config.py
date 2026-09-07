@@ -85,3 +85,16 @@ def test_llm_timeout_override(backup_env, monkeypatch):
     s = Settings()
     assert s.LLM_TIMEOUT_MS == 60000
     assert s.llm_timeout == 60.0
+
+
+def test_v03_workflow_config():
+    """测试 V0.3 工作流配置加载与默认值。"""
+    settings = Settings(
+        DB_HOST="localhost", DB_PORT=3306, DB_USER="test", DB_PASSWORD="pwd", DB_NAME="db",
+        LLM_API_BASE="https://api.example.com", LLM_API_KEY="key", LLM_MODEL="model",
+    )
+    assert settings.SKILLS_DIR == "skills"
+    assert settings.DEFAULT_SKILL == "opinion-pulse"
+    assert settings.WORKFLOW_STAGE_TIMEOUT_MS == 300000
+    assert settings.ENABLE_WORKFLOW_ENGINE is True
+    assert settings.workflow_stage_timeout == 300.0

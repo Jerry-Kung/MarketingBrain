@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     UI_POLL_INTERVAL_MS: int = Field(default=2500)
     TOOL_MAX_RECORDS: int = Field(default=500)
 
+    # ---------- V0.3 Skill 与工作流配置 ----------
+    SKILLS_DIR: str = Field(default="skills")
+    DEFAULT_SKILL: str = Field(default="opinion-pulse")
+    WORKFLOW_STAGE_TIMEOUT_MS: int = Field(default=300000)
+    ENABLE_WORKFLOW_ENGINE: bool = Field(default=True)
+
     @field_validator("APP_PORT", "UI_POLL_INTERVAL_MS", "TOOL_MAX_RECORDS", "LLM_TIMEOUT_MS")
     @classmethod
     def _positive_int(cls, v: int) -> int:
@@ -88,6 +94,11 @@ class Settings(BaseSettings):
     def llm_timeout(self) -> float:
         """LLM 请求超时（秒）。"""
         return self.LLM_TIMEOUT_MS / 1000.0
+
+    @property
+    def workflow_stage_timeout(self) -> float:
+        """工作流单阶段超时（秒）。"""
+        return self.WORKFLOW_STAGE_TIMEOUT_MS / 1000.0
 
     def model_post_init(self, __context) -> None:
         """在对象初始化完成后校验必需数据库配置。"""
