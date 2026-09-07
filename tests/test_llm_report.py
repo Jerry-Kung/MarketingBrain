@@ -83,13 +83,11 @@ class TestReportGen:
         assert report["scope"]["comment_count"] == 100
         assert result.usage.total_tokens == 15
 
-    def test_generate_strategy_pack_uses_max_tokens(self):
-        """Controller 冒烟修复：推理模型需 ~16000 输出预算，否则 finish_reason=length、答案为空。"""
+    def test_generate_strategy_pack_does_not_cap_max_tokens(self):
+        """输出上限交由模型自身决定：报告调用不得人为设 max_tokens 上限。"""
         provider = MockProvider({"scope": {}})
         generate_strategy_pack(_bundle(), provider)
-        from app.llm.report import REPORT_MAX_TOKENS
-        assert provider.kwargs.get("max_tokens") == REPORT_MAX_TOKENS
-        assert provider.kwargs.get("max_tokens") >= 16000
+        assert provider.kwargs.get("max_tokens") is None
 
     def test_generate_strategy_pack_uses_long_timeout(self):
         """长输出调用必须使用不低于 300s 的超时，避免中途超时丢结果。"""

@@ -62,7 +62,7 @@ FastAPI (app/api)
 | 依赖 | 用途 | 关键约束 |
 |---|---|---|
 | 测试环境 MySQL (`drive_intent_backend.api_job`) | 舆情分析原始数据 | **只读账号**（仅 SELECT）。数据约 97 万条评论。 |
-| LLM API | V0.2 已启用 | **OpenAI-compatible** 接口，`httpx` 直连（不引入 openai SDK）。`.env` 配置 base_url / key / model。推理模型输出预算大，报告请求需大 `max_tokens`（~16000）且超时 ≥300s。 |
+| LLM API | V0.2 已启用 | **OpenAI-compatible** 接口，`httpx` 直连（不引入 openai SDK）。`.env` 配置 base_url / key / model。推理模型输出预算大，报告请求**不设** `max_tokens`（上限交模型自身决定），超时 ≥300s。 |
 
 ## 5. 关键技术约束
 

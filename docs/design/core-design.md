@@ -133,5 +133,5 @@ V0.2 在既有分层上新增三个子模块：`llm`、`analysis`、`pipeline`�
 - **固定（非 Agent）流水线**：V0.2 明确不引入 Agent 规划/多步下钻，只为「数据取证 → 报告」建立一条写死的基线链路，供后续 V0.4 的 Agent 对照验证。两阶段 Agent 式分析是 V0.4，不在本版。
 - **报告是固定结构的「舆情策略包」**：一次 LLM 调用按固定输出协议产出，字段组含 `scope / overall / themes / sources / risk_opportunity / evidence_gaps / assumptions / actions / metrics`，作为后续版本契约打底。
 - **引用校验对着证据索引**：报告引用的证据 ID 必须来自喂给模型的证据库；未知 ID 直接剔除并在报告中标注，杜绝幻觉证据混入。
-- **推理模型需要大输出预算**：deepseek 系推理模型会把输出预算大量用于 `reasoning_content`，`max_tokens` 偏低会在推理阶段耗尽、最终答案为空（`finish_reason=length`）。实测需 `max_tokens` ~16000；报告请求超时用不低于 300s（覆盖默认的 120s）。
+- **推理模型输出预算**：deepseek 系推理模型会把输出预算大量用于 `reasoning_content`，若人为设 `max_tokens` 偏低会在推理阶段耗尽、最终答案为空（`finish_reason=length`）。故报告请求**不设** `max_tokens`，输出上限交由模型自身决定；超时用不低于 300s（覆盖默认的 120s）。
 - **后台线程 + 前端轮询**：`POST /api/tasks` 立即返回 `task_id`，后台线程驱动流水线，前端按 `UI_POLL_INTERVAL_MS` 轮询状态；运行中任务展示模型/Token/耗时。
