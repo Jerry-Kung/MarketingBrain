@@ -113,6 +113,63 @@ V0.1 把「一句话 → 意图 → 任务」跑通了，但链条在「取证�
 
 为什么 V0.2 用固定流程而不是 Agent？因为本版的目标是**先建立一个可对照的非 Agent 基线**：把「数据取证 → 报告」这条链路用最直白的方式跑通、能核验，再谈 Agent 化。两阶段的 Agent 式自主分析（主 Agent 制定计划、子 Agent 下钻、评审把关）属于 **V0.4**，不在 V0.2 范围。
 
+## 三·六、V0.3 工作流引擎（可审计的分阶段工作流）
+
+V0.3 引入 **Skill 机制** 与 **WorkflowEngine**，将 V0.2 的固定流水线升级为可审计的分阶段工作流。
+
+### Skill 文件格式
+
+Skill 通过 YAML 声明式配置定义：
+
+```yaml
+version: "0.3.0"
+name: "opinion-pulse"
+description: "常规舆情脉搏分析"
+
+stages:
+  - name: "snapshot"
+    system_prompt: "你是数据边界确认专员..."
+    tools: []
+    output_schema: {...}
+  
+  - name: "investigate"
+    system_prompt: "你是舆情调查分析师..."
+    tools: [data_coverage, sample_comments, ...]
+    output_schema: {...}
+```
+
+### 工作流执行流程
+
+1. **API 层选择 Skill**：根据 `intent.goal_type` 映射到 Skill 名称（V0.3 简化映射）
+2. **SkillLoader 加载 YAML**：验证版本（只接受 `0.3.0`）、缓存 SkillDefinition
+3. **WorkflowEngine 按 stage 顺序执行**：
+   - 每个 stage 调用 LLM，传入 stage.system_prompt + 已有证据摘要
+   - LLM 返回 tool_calls 后，engine 拦截并校验授权（工具名必须在 stage.tools 白名单中）
+   - 执行授权工具，登记证据，记录 `tool_call` 事件
+   - 校验 LLM 输出是否符合 stage.output_schema
+   - 记录 `stage_start` / `stage_done` 事件
+4. **证据引用图**：synthesize stage 可登记 judgment（引用已登记证据），建立双向引用关系
+5. **持久化结果**：任务完成后，result 包含报告与证据
+
+### 审计事件类型
+
+V0.3 新增细粒度审计事件：
+
+- `skill_selected`：选择了哪个 Skill
+- `stage_start` / `stage_done`：阶段开始/完成
+- `tool_call`：工具调用（含工具名、参数摘要、样本量）
+- `tool_unauthorized`：未授权工具调用被拒绝
+- `judgment_made`：登记结构化判断
+
+### V0.2 兼容
+
+V0.2 基线流水线保持不变。通过 `ENABLE_WORKFLOW_ENGINE` 配置切换：
+
+- `ENABLE_WORKFLOW_ENGINE=true`（默认）：使用 V0.3 工作流引擎
+- `ENABLE_WORKFLOW_ENGINE=false`：回退到 V0.2 基线流水线
+
+已有 V0.2 任务（`skill_name` 为 `NULL`）历史数据不受影响。
+
 ## 四、页面长什么样（V0.1）
 
 前端页面目前有三个区域：

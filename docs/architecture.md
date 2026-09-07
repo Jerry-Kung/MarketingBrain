@@ -1,11 +1,11 @@
-# Marketing Brain V0.1 + V0.2 架构
+# Marketing Brain V0.1 + V0.2 + V0.3 架构
 
 > 系统级信息：系统边界、核心模块职责、分层、数据流、外部依赖、关键技术约束。
 > 变更系统形态时更新本文件。
 
 ## 1. 系统边界
 
-Marketing Brain V0 是一套面向汽车舆情分析的轻量受控 Agent Harness。V0.1 + V0.2 边界：
+Marketing Brain V0 是一套面向汽车舆情分析的轻量受控 Agent Harness。V0.1 + V0.2 + V0.3 边界：
 
 **V0.1 负责：**
 - 通过 Docker Compose 在测试环境启动；
@@ -21,8 +21,14 @@ Marketing Brain V0 是一套面向汽车舆情分析的轻量受控 Agent Harnes
 - 报告引用校验（未命中证据库的非法 ID 剔除）；
 - 后台线程执行 + 前端轮询查看状态/报告。
 
-**V0.2 不负责（后续版本）：**
-- 受控工作流/Skill 机制（V0.3）；
+**V0.3 负责（受控工作流 / Skill 机制）：**
+- Skill 机制：YAML 声明式定义分阶段工作流（stages + 工具白名单 + prompts + output_schema）；
+- 工作流引擎：按 stage 顺序执行、运行时工具授权拦截；
+- 细粒度审计事件（skill_selected / stage_start / stage_done / tool_call / tool_unauthorized / judgment_made）；
+- 证据引用图：judgment / assumption 证据类型，记录双向引用；
+- 默认启用，可通过 `ENABLE_WORKFLOW_ENGINE` 回退到 V0.2 基线；
+
+**V0.3 不负责（后续版本）：**
 - 主子 Agent Loop（V0.4，两阶段 Agent 式流程届时才引入）；
 - 完整审计可视化工作台（V0.5）。
 
@@ -39,6 +45,29 @@ Marketing Brain V0 是一套面向汽车舆情分析的轻量受控 Agent Harnes
 | LLM | `app/llm/` | OpenAI-compatible Provider（直连不做 SDK 封装）+ 舆情策略包报告生成。抽象为接口便于测试 stub。 |
 | 确定性分析工具 | `app/analysis/` | 工具集合，自动附加快照边界（时间窗 + 对象标签），返回查询条件、统计结果、样本量、证据 ID 与偏差提示。 |
 | 固定流水线 | `app/pipeline/` | 固定阶段顺序执行（数据取证 → LLM 报告 → 引用校验 → 落库），后台线程执行 + 前端轮询。 |
+
+### V0.3 新增模块
+
+**app/skill/**
+
+- `schema.py`：SkillDefinition / StageDefinition 数据结构
+- `loader.py`：从 YAML 加载 Skill，版本校验（只接受 0.3.0），缓存
+
+**app/workflow/**
+
+- `engine.py`：WorkflowEngine，按 Skill stages 顺序执行，工具授权在运行时拦截
+- `context.py`：构建 Stage 专用 LLM 上下文（system prompt + 已有证据摘要）
+- `runner.py`：后台线程启动工作流任务（替代 V0.2 的 BaselinePipeline runner）
+
+**app/analysis/**
+
+- `registry.py`：工具注册表（工具名 → 可调用对象映射）
+
+**skills/**
+
+- `opinion-pulse.yaml`：常规舆情脉搏分析
+- `evidence-review.yaml`：证据复核专项
+- `strategy-synthesis.yaml`：策略综合专项
 
 ## 3. 分层与数据流
 
