@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
+import Timeline from './Timeline'
 
 const API_BASE = '/api'
 const UI_POLL_INTERVAL_MS = 2500
@@ -193,6 +194,9 @@ function App() {
               <button className="primary" onClick={closeTask}>返回列表</button>
             </div>
             <ReportView task={selectedTask} result={selectedResult} />
+            {selectedTask && selectedTask.skill_name && (
+              <Timeline taskId={selectedTask.task_id} />
+            )}
           </section>
         )}
       </main>

@@ -19,6 +19,8 @@ from app.api.schemas import (
     ReportResponse,
     TaskListResponse,
     TaskResponse,
+    TimelineEventItem,
+    TimelineResponse,
 )
 from app.core.config import Settings, load_settings
 from app.store.repository import EventRepository, TaskRepository
@@ -271,6 +273,26 @@ def create_app(
         if task.result:
             evs = task.result.get("evidence", [])
         return EvidenceListResponse(task_id=task_id, evidence=evs)
+
+    @app.get("/api/tasks/{task_id}/timeline", response_model=TimelineResponse)
+    def get_timeline(task_id: str):
+        """获取任务执行时间线（stage 与工具调用过程）。"""
+        task = task_repo.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+        events = event_repo.get_events(task_id)
+        timeline_events = [
+            TimelineEventItem(
+                event_type=ev.event_type,
+                payload=ev.payload,
+                seq=ev.seq,
+                created_at=ev.created_at,
+            )
+            for ev in events
+        ]
+
+        return TimelineResponse(task_id=task_id, events=timeline_events)
 
     @app.get("/api/data-overview", response_model=DataOverviewResponse)
     def data_overview():

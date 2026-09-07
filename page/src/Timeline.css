@@ -1,0 +1,94 @@
+.timeline {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  background: #fafafa;
+}
+
+.timeline h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.stage {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  border-left: 3px solid #ccc;
+  background: #fff;
+}
+
+.stage-running {
+  border-left-color: #2196f3;
+}
+
+.stage-done {
+  border-left-color: #4caf50;
+}
+
+.stage-failed {
+  border-left-color: #f44336;
+}
+
+.stage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.stage-name {
+  font-weight: 600;
+  color: #333;
+}
+
+.stage-status {
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.status-running {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.status-done {
+  background: #e8f5e9;
+  color: #388e3c;
+}
+
+.status-failed {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.tool-list {
+  margin: 0;
+  padding-left: 1.5rem;
+  list-style: disc;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.tool-list li {
+  margin-bottom: 0.25rem;
+}
+
+.error {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: #ffebee;
+  color: #c62828;
+  border-radius: 3px;
+  font-size: 0.9rem;
+}
+
+.timeline-error, .timeline-empty {
+  padding: 1rem;
+  color: #999;
+  font-style: italic;
+}

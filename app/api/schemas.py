@@ -91,3 +91,19 @@ class EvidenceListResponse(BaseModel):
 
     task_id: str
     evidence: list[EvidenceItem]
+
+
+class TimelineEventItem(BaseModel):
+    """Timeline 事件项。"""
+
+    event_type: str
+    payload: dict
+    seq: int
+    created_at: str
+
+
+class TimelineResponse(BaseModel):
+    """任务 Timeline 响应。"""
+
+    task_id: str
+    events: list[TimelineEventItem]
