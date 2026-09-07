@@ -14,6 +14,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 只进行满足验收标准所需的最小且完整的修改；
 - 小型任务（明确且局部的修改，通常只影响两三个文件）在简要检查后直接实现和验证，不创建计划或 Spec。中大型任务（跨多个文件/模块的功能实现或重构）请先澄清需求，制定计划；
 
+## 本机 Claude Code 环境（重要）
+
+- 本机 Claude Code 已从 C 盘迁移到 **D 盘**，所有相关本地文件（插件、Marketplace、配置、项目数据、自动记忆）都在 `D:\KLH\DevTools\ClaudeCode\ClaudeCodeData\`。
+- 查找 Claude Code 插件 / skill / 项目记忆时**不要**去 C 盘 `C:\Users\konglinghan\.claude`（该处已空），一律用 D 盘路径。
+
 ## 3. 文档管理
 
 - 项目文档统一存放于 `docs/` 目录，不散落在仓库其它位置；
