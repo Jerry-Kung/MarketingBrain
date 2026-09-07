@@ -150,11 +150,17 @@ class WorkflowEngine:
                 ) from e
 
     def _mock_llm_response(self, stage) -> dict:
-        """Mock LLM 响应（测试用，真实实现需调用 llm_provider.chat）。"""
-        # V0.3 测试框架：返回符合 output_schema 的最小 JSON
+        """调用 LLM Provider 获取 Stage 响应（测试时可在实例上替换此方法）。
+
+        对于声明了工具的 stage，自动生成工具调用列表，确保确定性工具在每次工作流中均被执行。
+        """
+        messages = build_stage_context(stage, self.evidence_store)
+        result = self.llm_provider.chat(messages)
+        # 为 stage 声明的全部工具生成调用（确定性执行，无需 LLM 主动选择）
+        tool_calls = [{"name": t, "arguments": {}} for t in stage.tools]
         return {
-            "content": json.dumps({"ok": True}),
-            "tool_calls": [],
+            "content": result.content,
+            "tool_calls": tool_calls,
         }
 
     def _build_result(self) -> dict:
