@@ -55,3 +55,38 @@ class TaskListResponse(BaseModel):
     """任务列表响应。"""
 
     tasks: list[TaskResponse]
+
+
+class ReportResponse(BaseModel):
+    """任务报告响应。"""
+
+    task_id: str
+    status: str
+    report: Optional[dict] = None
+    validation: Optional[dict] = None
+    meta: Optional[dict] = None
+    error: Optional[str] = None
+
+
+class EvidenceItem(BaseModel):
+    """单条证据（评论/视频/统计）。"""
+
+    evidence_id: str
+    kind: str
+    comment_id: Optional[str] = None
+    job_id: Optional[str] = None
+    content: str = ""
+    video_title: str = ""
+    like_count: int = 0
+    passed: Optional[bool] = None
+    is_car_owner: Optional[bool] = None
+    has_purchase_intent: Optional[bool] = None
+    source: str = ""
+    extra: dict = {}
+
+
+class EvidenceListResponse(BaseModel):
+    """证据列表响应。"""
+
+    task_id: str
+    evidence: list[EvidenceItem]

@@ -2,9 +2,10 @@
 
 `create_app(db_path, datasource)` 是工厂函数，便于测试注入临时 SQLite 存储
 和 stub/真实数据源。数据源为 None 时，数据概览和健康检查降级（不 500）。
+LLM 未配置时任务标记失败（不 500），`background=True` 时任务后台执行。
 """
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
@@ -13,7 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.schemas import (
     CreateTaskRequest,
     DataOverviewResponse,
+    EvidenceListResponse,
     HealthResponse,
+    ReportResponse,
     TaskListResponse,
     TaskResponse,
 )
@@ -41,6 +44,9 @@ def create_app(
     datasource=None,
     settings: Optional[Settings] = None,
     static_dir: Optional[str] = None,
+    *,
+    llm_provider=None,
+    background: bool = True,
 ) -> FastAPI:
     """创建 FastAPI 应用工厂。
 
@@ -49,8 +55,20 @@ def create_app(
         datasource: 数据源适配器。None 时健康检查/概览降级（无真实 DB）。
         settings: 配置。None 时自动加载。
         static_dir: 前端构建产物目录。None 时用 app/static（Docker 多阶段构建放入）。
+        llm_provider: LLM Provider（测试注入 mock）。None 时尝试按配置构建，
+            仍无配置则任务标记失败（不 500）。
+        background: True 后台线程执行任务；False 同步执行（便于测试）。
     """
     settings = settings or load_settings()
+
+    # 注入 LLM Provider：外部（测试）传参优先，否则用配置构建。
+    # 配置缺失（无 LLM_API_BASE/KEY/MODEL）时保持 None，不在此处抛错，
+    # 由 POST /api/tasks 将任务标记为 failed。
+    if llm_provider is None:
+        if settings.LLM_API_BASE and settings.LLM_API_KEY and settings.LLM_MODEL:
+            from app.llm.provider import LLMProvider
+            llm_provider = LLMProvider.from_settings(settings)
+
     if db_path is None:
         if not os.path.isabs(settings.APP_STATE_DIR):
             # 相对路径基于项目根
@@ -119,9 +137,34 @@ def create_app(
     def create_task(req: CreateTaskRequest):
         # 任务理解/意图识别
         intent = parser.parse(req.raw_input)
+        # Controller 裁定 P5：无时间短语时默认最近 30 天窗口（与「近期」约定一致）
+        if intent.time_range is None:
+            from app.understanding.intent import TimeRange
+            today = datetime.now().date()
+            intent.time_range = TimeRange(today - timedelta(days=30), today)
         # 逻辑快照
         from app.snapshot.snapshot import LogicalSnapshot
         snap = LogicalSnapshot.from_intent(intent)
+        # Controller 裁定 P10：对象按 #标签 匹配，存进快照 extra
+        #（from_intent 只写 extra["object"]，不写 video_tags）
+        if intent.object:
+            snap.extra = dict(snap.extra or {})
+            snap.extra.setdefault("video_tags", [intent.object])
+
+        # Controller 裁定 P2：LLM 未配置时不运行、不 500，直接标记失败
+        if llm_provider is None:
+            err = "LLM 未配置（缺少 LLM_API_BASE/LLM_API_KEY/LLM_MODEL）"
+            task = task_repo.create_task(
+                raw_input=req.raw_input,
+                parsed_intent=intent.to_dict(),
+                snapshot=snap.to_dict(),
+            )
+            task_repo.mark_failed(task.task_id, err)
+            event_repo.append_event(
+                task.task_id, "task_failed",
+                {"error": err, "raw_input": req.raw_input},
+            )
+            return _task_to_response(task_repo.get_task(task.task_id))
 
         task = task_repo.create_task(
             raw_input=req.raw_input,
@@ -133,6 +176,25 @@ def create_app(
             task.task_id, "task_created",
             {"raw_input": req.raw_input, "intent": intent.to_dict()},
         )
+
+        # 数据源未配置（datasource=None）：流水线无法取数，接受任务但不执行，
+        # 状态保持 pending（与健康检查/概览的降级语义一致，不 500、不启动后台线程）。
+        if _ds is None:
+            return _task_to_response(task)
+
+        if background:
+            from app.pipeline.runner import start_task_background
+            start_task_background(
+                task_id=task.task_id, task_repo=task_repo, event_repo=event_repo,
+                datasource=_ds, llm_provider=llm_provider, settings=settings,
+            )
+        else:
+            from app.pipeline.runner import run_task_sync
+            run_task_sync(
+                task.task_id, task_repo=task_repo, event_repo=event_repo,
+                datasource=_ds, llm_provider=llm_provider, settings=settings,
+            )
+            task = task_repo.get_task(task.task_id)
         return _task_to_response(task)
 
     @app.get("/api/tasks", response_model=TaskResponse)
@@ -146,6 +208,32 @@ def create_app(
     def list_tasks(limit: int = 50):
         tasks = task_repo.list_tasks(limit=limit)
         return TaskListResponse(tasks=[_task_to_response(t) for t in tasks])
+
+    @app.get("/api/tasks/{task_id}/report", response_model=ReportResponse)
+    def get_report(task_id: str):
+        task = task_repo.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+        if task.status != "success" or not task.result:
+            raise HTTPException(status_code=409,
+                                detail=f"task {task_id} 未成功完成 (status={task.status})")
+        return ReportResponse(
+            task_id=task_id, status=task.status,
+            report=task.result.get("report"),
+            validation=task.result.get("validation"),
+            meta=task.result.get("meta"),
+            error=None,
+        )
+
+    @app.get("/api/tasks/{task_id}/evidence", response_model=EvidenceListResponse)
+    def get_evidence(task_id: str):
+        task = task_repo.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+        evs = []
+        if task.result:
+            evs = task.result.get("evidence", [])
+        return EvidenceListResponse(task_id=task_id, evidence=evs)
 
     @app.get("/api/data-overview", response_model=DataOverviewResponse)
     def data_overview():
