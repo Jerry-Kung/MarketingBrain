@@ -33,6 +33,7 @@ class TaskRecord:
     raw_input: str = ""
     parsed_intent: dict = field(default_factory=dict)
     snapshot: dict = field(default_factory=dict)
+    skill_name: Optional[str] = None  # V0.3 记录使用的 Skill
     result: dict = field(default_factory=dict)
     error: Optional[str] = None
     created_at: str = field(default_factory=_now)
@@ -45,6 +46,7 @@ class TaskRecord:
             "raw_input": self.raw_input,
             "parsed_intent": self.parsed_intent,
             "snapshot": self.snapshot,
+            "skill_name": self.skill_name,
             "result": self.result,
             "error": self.error,
             "created_at": self.created_at,
@@ -108,6 +110,7 @@ class TaskRepository(_SQLiteBase):
                 raw_input    TEXT NOT NULL DEFAULT '',
                 parsed_intent TEXT,
                 snapshot     TEXT,
+                skill_name   TEXT,
                 result       TEXT,
                 error        TEXT,
                 created_at   TEXT NOT NULL,
@@ -122,17 +125,19 @@ class TaskRepository(_SQLiteBase):
         raw_input: str,
         parsed_intent: Optional[dict],
         snapshot: Optional[dict],
+        skill_name: Optional[str] = None,
     ) -> TaskRecord:
         task = TaskRecord(
             raw_input=raw_input,
             parsed_intent=parsed_intent or {},
             snapshot=snapshot or {},
+            skill_name=skill_name,
         )
         self._conn.execute(
             """
             INSERT INTO tasks (task_id, status, raw_input, parsed_intent,
-                               snapshot, result, error, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               snapshot, skill_name, result, error, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task.task_id,
@@ -140,6 +145,7 @@ class TaskRepository(_SQLiteBase):
                 task.raw_input,
                 self._json_dumps(task.parsed_intent),
                 self._json_dumps(task.snapshot),
+                task.skill_name,
                 self._json_dumps(task.result),
                 task.error,
                 task.created_at,
@@ -164,6 +170,7 @@ class TaskRepository(_SQLiteBase):
             raw_input=row["raw_input"],
             parsed_intent=self._json_loads(row["parsed_intent"]),
             snapshot=self._json_loads(row["snapshot"]),
+            skill_name=row["skill_name"],
             result=self._json_loads(row["result"]),
             error=row["error"],
             created_at=row["created_at"],
