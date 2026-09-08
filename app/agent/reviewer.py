@@ -8,7 +8,6 @@ Reviewer 不调用任何分析工具，只做判断与决策。
 import json
 
 from app.agent.protocols import ReviewVerdict
-from app.agent.tools_spec import TOOL_WHITELIST
 
 
 class Reviewer:
@@ -31,7 +30,9 @@ class Reviewer:
             ReviewVerdict
         """
         prompt = self._build_prompt(subtask_results, cards, evidence_store)
-        data, _ = self.llm_provider.chat_json(prompt, temperature=0.0, max_tokens=3000)
+        data, _ = self.llm_provider.chat_json(
+            prompt, temperature=0.0, max_tokens=3000, timeout=self.settings.agent_llm_timeout,
+        )
         return parse_verdict(data)
 
     def _build_prompt(self, subtask_results, cards, evidence_store) -> list[dict]:

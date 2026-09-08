@@ -30,7 +30,9 @@ class Supervisor:
         """
         limit = max(1, min(int(max_subtasks), self.settings.AGENT_MAX_SUBTASKS))
         prompt = self._build_prompt(intent, evidence_store, limit)
-        data, _ = self.llm_provider.chat_json(prompt, temperature=0.2, max_tokens=4000)
+        data, _ = self.llm_provider.chat_json(
+            prompt, temperature=0.2, max_tokens=4000, timeout=self.settings.agent_llm_timeout,
+        )
         cards = parse_cards(json.dumps(data))
         return cards[:limit]
 

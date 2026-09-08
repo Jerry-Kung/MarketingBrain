@@ -94,6 +94,7 @@ class Orchestrator:
             self.llm_provider, self.datasource, self.snapshot, self.evidence_store,
             self.event_repo, counter, tool_whitelist=TOOL_WHITELIST,
             max_loops=budget.loops, max_records=self.settings.TOOL_MAX_RECORDS,
+            settings=self.settings,
         )
 
     def _register_judgments_and_assumptions(self, result) -> None:

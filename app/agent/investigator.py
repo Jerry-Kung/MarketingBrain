@@ -6,7 +6,7 @@
 import json
 
 from app.agent.protocols import (
-    InvestigationCard, InvestigatorResult, STOP_REASON_EVIDENCE_SUFFICIENT,
+    InvestigationCard, InvestigatorResult,
     STOP_REASON_DATA_INSUFFICIENT, STOP_REASON_BUDGET, STOP_REASON_TOOL_FAILURE,
     STOP_REASON_ILLEGAL, VALID_STOP_REASONS,
 )
@@ -22,7 +22,7 @@ class Investigator:
 
     def __init__(self, llm_provider, datasource, snapshot, evidence_store,
                  event_repo, budget_counter, *, tool_whitelist=None,
-                 max_loops=None, max_records=None):
+                 max_loops=None, max_records=None, settings=None):
         self.llm_provider = llm_provider
         self.datasource = datasource
         self.snapshot = snapshot
@@ -32,6 +32,7 @@ class Investigator:
         self.tool_whitelist = tool_whitelist or set(TOOL_WHITELIST)
         self.max_loops = max_loops
         self.max_records = max_records or 500
+        self.settings = settings
 
     def run(self, card: InvestigationCard, task_id: str, round_no: int = 1) -> InvestigatorResult:
         """执行单张调查卡，返回 InvestigatorResult。"""
@@ -91,8 +92,12 @@ class Investigator:
             messages = self._append_tool_result(messages, tool_name, tool_summary, turn.get("reason", ""))
 
     def _call_llm(self, messages) -> LLMResult:
-        return self.llm_provider.chat(messages, tools=TOOL_JSON_SCHEMAS,
-                                      temperature=0.2, max_tokens=2000)
+        # settings 为 None（测试直接实例化）时缺省不设超时；生产路径由 Orchestrator 传入。
+        timeout = getattr(self.settings, "agent_llm_timeout", None)
+        return self.llm_provider.chat(
+            messages, tools=TOOL_JSON_SCHEMAS, temperature=0.2, max_tokens=2000,
+            timeout=timeout,
+        )
 
     def _parse_turn(self, result: LLMResult) -> dict | None:
         """从 LLMResult 解析合法回合 dict，或 None。
