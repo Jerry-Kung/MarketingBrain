@@ -23,15 +23,15 @@ _PROPERTY_RULES: dict[str, dict[str, Any]] = {
     "topic_frequency_tool": {},
     "top_sources": {"limit": {"type": "integer", "minimum": 1, "default": 10}},
     "sample_comments": {
-        "keyword": {"type": "string"},
+        "keyword": {"type": "string", "default": None},
         "limit": {"type": "integer", "minimum": 1, "default": 30},
     },
     "drill_evidence": {
-        "keyword": {"type": "string"},
-        "min_like": {"type": "integer", "minimum": 0},
+        "keyword": {"type": "string", "default": None},
+        "min_like": {"type": "integer", "minimum": 0, "default": None},
         "limit": {"type": "integer", "minimum": 1, "default": 30},
     },
-    "object_compare": {"other_tags": {"type": "array", "items": {"type": "string"}}},
+    "object_compare": {"other_tags": {"type": "array", "items": {"type": "string"}, "default": None}},
 }
 
 # 各工具在参数缺省时的默认 limit（无 limit 参数的工具不在此列）。

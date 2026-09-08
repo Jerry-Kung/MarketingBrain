@@ -25,6 +25,20 @@ class TestToolSchema:
             assert "name" in s["function"]
             assert "parameters" in s["function"]
 
+    def test_optional_params_not_required_in_schema(self):
+        """可选参数（keyword/min_like/other_tags）不应出现在 required 中。"""
+        schemas = {s["function"]["name"]: s["function"]["parameters"] for s in TOOL_JSON_SCHEMAS}
+        assert "keyword" not in schemas["sample_comments"].get("required", [])
+        assert "keyword" not in schemas["drill_evidence"].get("required", [])
+        assert "min_like" not in schemas["drill_evidence"].get("required", [])
+        assert "other_tags" not in schemas["object_compare"].get("required", [])
+
+    def test_required_only_for_non_default_params(self):
+        """limit 有 default，不应在 required 中；其余无 default 的参数应在 required 中。"""
+        schemas = {s["function"]["name"]: s["function"]["parameters"] for s in TOOL_JSON_SCHEMAS}
+        assert "limit" not in schemas["top_sources"].get("required", [])
+        assert schemas["sample_comments"].get("required", []) == []
+
 
 class TestValidateAndCoerce:
     def test_empty_args_for_no_param_tool(self):
