@@ -52,6 +52,7 @@ class Supervisor:
             "evidence_requirements, suggested_tools, priority。\n"
             "suggested_tools 只能从以下白名单中选择（可留空表示由子 Agent 自主决定）："
             f"{tool_list}。\n"
+            "priority 必须是 1~5 的整数（数值越大优先级越高）。\n"
             f"最多输出 {limit} 张调查卡。输出必须是 JSON：{{'cards': [ ... ]}}。"
         )
         user = (

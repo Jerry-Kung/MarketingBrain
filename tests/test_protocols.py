@@ -24,6 +24,21 @@ class TestInvestigationCard:
         assert c2.priority == 1
         assert c2.evidence_requirements == ["评论样本", "声量趋势"]
 
+    def test_priority_accepts_semantic_label(self):
+        # 真实 LLM 可能输出 priority 为语义标签而非整数，应容错归一化而非抛 ValueError
+        for label, expect in [("high", 3), ("medium", 2), ("low", 1), ("urgent", 3), ("normal", 2)]:
+            card = InvestigationCard.from_dict({"card_id": "c1", "objective": "o", "priority": label})
+            assert card.priority == expect
+
+    def test_priority_accepts_numeric_string(self):
+        card = InvestigationCard.from_dict({"card_id": "c1", "objective": "o", "priority": "2"})
+        assert card.priority == 2
+
+    def test_priority_defaults_on_garbage(self):
+        # 无法解析的怪异值回退默认值 1，不让任务因 LLM 输出边界而失败
+        card = InvestigationCard.from_dict({"card_id": "c1", "objective": "o", "priority": "abc"})
+        assert card.priority == 1
+
 
 class TestInvestigatorResult:
     def test_to_dict(self):

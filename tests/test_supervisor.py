@@ -90,3 +90,11 @@ class TestParseCards:
         assert out[0].goal_type == "pulse"
         assert out[0].priority == 1
         assert out[0].suggested_tools == []
+
+    def test_parse_cards_tolerates_semantic_priority(self):
+        # 回归：真实 LLM 输出 priority="high" 不应抛 ValueError（曾导致任务 failed）
+        out = parse_cards(json.dumps({"cards": [
+            {"card_id": "z", "objective": "o", "priority": "high",
+             "suggested_tools": ["sample_comments"]}]}))
+        assert len(out) == 1
+        assert out[0].priority == 3

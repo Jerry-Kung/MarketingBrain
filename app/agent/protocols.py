@@ -8,6 +8,32 @@
 from dataclasses import dataclass, field
 
 
+# 语义优先级标签 -> 整数映射。真实 LLM 可能把 priority 输出为 "high"/"medium"/"low"
+# 而非整数，映射后统一为 1..3，避免 int("high") 抛 ValueError 把任务标为 failed。
+_PRIORITY_LABELS = {"high": 3, "medium": 2, "low": 1, "urgent": 3, "normal": 2}
+
+
+def _coerce_priority(value) -> int:
+    """把任意优先值容错归一化为正整数。
+
+    兼容：整数、数值字符串("2"/"3")、语义标签("high"/"medium"/"low"/"urgent"/"normal")；
+    无法解析时回退默认值 1。
+    """
+    if isinstance(value, bool) or value is None:
+        return 1
+    if isinstance(value, int):
+        return max(1, value)
+    if isinstance(value, float):
+        return max(1, int(value))
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in _PRIORITY_LABELS:
+            return _PRIORITY_LABELS[s]
+        if s.lstrip("-").isdigit():
+            return max(1, int(s))
+    return 1
+
+
 # 停止原因（V0.4）
 STOP_REASON_EVIDENCE_SUFFICIENT = "evidence_sufficient"
 STOP_REASON_DATA_INSUFFICIENT = "data_insufficient"
@@ -53,7 +79,7 @@ class InvestigationCard:
             objective=d.get("objective", ""),
             evidence_requirements=d.get("evidence_requirements", []),
             suggested_tools=d.get("suggested_tools", []),
-            priority=int(d.get("priority", 1)),
+            priority=_coerce_priority(d.get("priority", 1)),
         )
 
 
