@@ -41,6 +41,32 @@ class LLMResult:
     def to_dict(self) -> dict:
         return {"content": self.content, "usage": self.usage.to_dict()}
 
+    @property
+    def tool_calls(self) -> list[dict]:
+        """解析 raw 中的 function tool_calls，返回 [{name, arguments(dict)}]。
+
+        arguments 为 JSON 字符串，解析失败降级为空 dict。无 tool_calls 时返回 []。
+        """
+        try:
+            msg = self.raw["choices"][0]["message"]
+        except (KeyError, IndexError, TypeError):
+            return []
+        calls = msg.get("tool_calls") or []
+        out = []
+        for c in calls:
+            fn = c.get("function") or {}
+            name = fn.get("name", "")
+            arguments = fn.get("arguments", "{}")
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except (json.JSONDecodeError, TypeError):
+                    arguments = {}
+            if not isinstance(arguments, dict):
+                arguments = {}
+            out.append({"name": name, "arguments": arguments})
+        return out
+
 
 class LLMProvider:
     def __init__(
@@ -77,7 +103,7 @@ class LLMProvider:
             transport=self._transport,
         )
 
-    def chat(self, messages, *, response_format=None, temperature=None,
+    def chat(self, messages, *, tools=None, response_format=None, temperature=None,
              max_tokens=None, timeout=None) -> LLMResult:
         body = {
             "model": self.model,
@@ -86,6 +112,9 @@ class LLMProvider:
         }
         if response_format:
             body["response_format"] = response_format
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = "auto"
         if max_tokens:
             body["max_tokens"] = max_tokens
 

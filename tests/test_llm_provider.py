@@ -117,3 +117,88 @@ class TestLLMProvider:
         # 显式覆盖时不报错且可用（MockTransport 不实际等待）
         res = p.chat([{"role": "user", "content": "x"}], timeout=300.0)
         assert res.content == "ok"
+
+
+class TestFunctionCalling:
+    def test_chat_with_tools_adds_tools_to_body(self):
+        """chat 传 tools 时请求体包含 tools 与 tool_choice。"""
+        captured = []
+
+        def handler(req):
+            captured.append(req)
+            return httpx.Response(200, json={
+                "choices": [{"message": {"role": "assistant", "content": None}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            })
+
+        transport = httpx.MockTransport(handler)
+        p = LLMProvider("https://llm.example.com/v1", "k", "m", transport=transport)
+        tools_def = [{"type": "function", "function": {"name": "sample_comments"}}]
+        p.chat([{"role": "user", "content": "x"}], tools=tools_def)
+        body = json.loads(captured[0].content)
+        assert body["tools"] == tools_def
+        assert body["tool_choice"] == "auto"
+
+    def test_chat_without_tools_has_no_tools_key(self):
+        """不传 tools 时请求体不含 tools 键（向后兼容）。"""
+        captured = []
+
+        def handler(req):
+            captured.append(req)
+            return httpx.Response(200, json={
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            })
+
+        transport = httpx.MockTransport(handler)
+        p = LLMProvider("https://llm.example.com/v1", "k", "m", transport=transport)
+        p.chat([{"role": "user", "content": "x"}])
+        body = json.loads(captured[0].content)
+        assert "tools" not in body
+        assert "tool_choice" not in body
+
+    def test_tool_calls_property_parses_arguments(self):
+        """LLMResult.tool_calls 解析 raw 中的 tool_calls 并 json.loads 参数。"""
+        raw = {
+            "choices": [{"message": {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_1", "type": "function",
+                     "function": {"name": "sample_comments",
+                                  "arguments": '{"keyword": "油耗", "limit": 10}'}},
+                    {"id": "call_2", "type": "function",
+                     "function": {"name": "drill_evidence",
+                                  "arguments": "not-json"}},
+                ],
+            }}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+        res = LLMResult(content=None, usage=LLMUsage(model="m"), raw=raw)
+        tcs = res.tool_calls
+        assert len(tcs) == 2
+        assert tcs[0]["name"] == "sample_comments"
+        assert tcs[0]["arguments"] == {"keyword": "油耗", "limit": 10}
+        assert tcs[1]["name"] == "drill_evidence"
+        assert tcs[1]["arguments"] == {}  # 非法 JSON 降级为空 dict
+
+    def test_tool_calls_empty_when_none(self):
+        """raw 中没有 tool_calls 时返回空列表。"""
+        res = LLMResult(content='{"ok": true}', usage=LLMUsage(model="m"), raw={})
+        assert res.tool_calls == []
+
+    def test_chat_with_tools_returns_tool_calls(self):
+        """chat 传 tools 且返回 tool_calls 时，LLMResult.tool_calls 可用。"""
+        def handler(req):
+            return httpx.Response(200, json={
+                "choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
+                    {"id": "c1", "type": "function",
+                     "function": {"name": "drill_evidence", "arguments": '{"min_like": 20}'}}
+                ]}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            })
+        transport = httpx.MockTransport(handler)
+        p = LLMProvider("https://llm.example.com/v1", "k", "m", transport=transport)
+        res = p.chat([{"role": "user", "content": "x"}],
+                     tools=[{"type": "function", "function": {"name": "drill_evidence"}}])
+        assert res.tool_calls == [{"name": "drill_evidence", "arguments": {"min_like": 20}}]
