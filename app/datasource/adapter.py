@@ -144,6 +144,26 @@ class MySqlDataSource:
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
 
+    @classmethod
+    def from_settings(cls, settings) -> "MySqlDataSource":
+        """按配置构造数据源（供冒烟测试/生产入口复用）。
+
+        与 app/api/routes.py 的 create_app_from_settings 保持一致：
+        - engine 由 settings.db_url 构建，URL 编码密码。
+        - pool_pre_ping/recycle 处理连接失效，size 控制连接池。
+        - db_url 会触发 _validate_required_db 校验缺项。
+        """
+        from sqlalchemy import create_engine
+
+        engine = create_engine(
+            settings.db_url,
+            pool_pre_ping=True,
+            pool_recycle=1800,
+            pool_size=3,
+            max_overflow=2,
+        )
+        return cls(engine)
+
     # ---- 内部工具 ----
     def _execute(self, sql: str, params: dict | None = None):
         """执行只读查询。每个连接强制只读事务。"""
