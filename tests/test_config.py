@@ -100,3 +100,18 @@ def test_v03_workflow_config():
     assert settings.skills_dir == PROJECT_ROOT / "skills"
     assert settings.skills_dir.is_absolute()
     assert settings.skills_dir.exists()
+
+
+def test_v04_agent_config():
+    """测试 V0.4 Agent 配置加载与默认值。"""
+    settings = Settings(
+        DB_HOST="localhost", DB_PORT=3306, DB_USER="test", DB_PASSWORD="pwd", DB_NAME="db",
+        LLM_API_BASE="https://api.example.com", LLM_API_KEY="key", LLM_MODEL="model",
+    )
+    assert settings.ENABLE_AGENT_ENGINE is True
+    assert settings.AGENT_MAX_SUBTASKS == 6
+    assert settings.AGENT_MAX_LOOPS == 3
+    assert settings.AGENT_MAX_TOOL_CALLS == 20
+    assert settings.AGENT_MAX_SUPPLEMENTS == 1
+    assert settings.AGENT_LLM_TIMEOUT_MS == 300000
+    assert settings.agent_llm_timeout == 300.0

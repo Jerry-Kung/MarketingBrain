@@ -62,7 +62,17 @@ class Settings(BaseSettings):
     WORKFLOW_STAGE_TIMEOUT_MS: int = Field(default=300000)
     ENABLE_WORKFLOW_ENGINE: bool = Field(default=True)
 
-    @field_validator("APP_PORT", "UI_POLL_INTERVAL_MS", "TOOL_MAX_RECORDS", "LLM_TIMEOUT_MS", "WORKFLOW_STAGE_TIMEOUT_MS")
+    # ---------- V0.4 Agent 配置 ----------
+    ENABLE_AGENT_ENGINE: bool = Field(default=True)
+    AGENT_MAX_SUBTASKS: int = Field(default=6)
+    AGENT_MAX_LOOPS: int = Field(default=3)
+    AGENT_MAX_TOOL_CALLS: int = Field(default=20)
+    AGENT_MAX_SUPPLEMENTS: int = Field(default=1)
+    AGENT_LLM_TIMEOUT_MS: int = Field(default=300000)
+
+    @field_validator("APP_PORT", "UI_POLL_INTERVAL_MS", "TOOL_MAX_RECORDS", "LLM_TIMEOUT_MS",
+                     "WORKFLOW_STAGE_TIMEOUT_MS", "AGENT_MAX_SUBTASKS", "AGENT_MAX_LOOPS",
+                     "AGENT_MAX_TOOL_CALLS", "AGENT_MAX_SUPPLEMENTS", "AGENT_LLM_TIMEOUT_MS")
     @classmethod
     def _positive_int(cls, v: int) -> int:
         if v <= 0:
@@ -99,6 +109,11 @@ class Settings(BaseSettings):
     def workflow_stage_timeout(self) -> float:
         """工作流单阶段超时（秒）。"""
         return self.WORKFLOW_STAGE_TIMEOUT_MS / 1000.0
+
+    @property
+    def agent_llm_timeout(self) -> float:
+        """Agent 单次 LLM 调用超时（秒）。"""
+        return self.AGENT_LLM_TIMEOUT_MS / 1000.0
 
     @property
     def skills_dir(self) -> Path:
