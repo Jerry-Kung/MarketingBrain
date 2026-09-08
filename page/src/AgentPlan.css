@@ -1,0 +1,140 @@
+/* V0.4 主计划/子任务进度/停止原因/评审/预算 视图样式。
+   所有类名以 agent-plan 为前缀，避免与现有 App.css / Timeline.css 冲突。 */
+.agent-plan {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.agent-plan h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.plan-cards,
+.subtask-list {
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* 主计划调查卡 */
+.plan-card {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0.6rem 0.75rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--blue);
+  border-radius: 4px;
+}
+
+.plan-priority {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.plan-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.plan-objective {
+  flex: 1;
+  font-size: 0.85rem;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+/* 子任务结果：按停止原因着色左边框 */
+.subtask-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0.6rem 0.75rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-left: 3px solid #ccc;
+  border-radius: 4px;
+}
+
+.status-evidence_sufficient {
+  border-left-color: var(--green);
+}
+
+.status-data_insufficient {
+  border-left-color: var(--amber);
+}
+
+.status-budget_exhausted,
+.status-tool_failure,
+.status-illegal_output {
+  border-left-color: var(--red);
+}
+
+.subtask-reason {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.subtask-summary {
+  font-size: 0.85rem;
+}
+
+.subtask-tools {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* 评审结论 */
+.review-box {
+  margin-bottom: 1.25rem;
+  padding: 0.6rem 0.75rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.review-verdict {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.verdict-pass {
+  background: var(--green);
+}
+
+.verdict-request_supplement {
+  background: var(--red);
+}
+
+.review-issue {
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* 预算计数 */
+.budget-box {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: var(--muted);
+}

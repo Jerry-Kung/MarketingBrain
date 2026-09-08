@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import Timeline from './Timeline'
+import AgentPlan from './AgentPlan'
 
 const API_BASE = '/api'
 const UI_POLL_INTERVAL_MS = 2500
@@ -201,6 +202,9 @@ function App() {
             <ReportView task={selectedTask} result={selectedResult} />
             {selectedTask && selectedTask.skill_name && (
               <Timeline taskId={selectedTask.task_id} />
+            )}
+            {selectedTask?.result?.agent && (
+              <AgentPlan agent={selectedTask.result.agent} />
             )}
           </section>
         )}
