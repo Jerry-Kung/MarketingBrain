@@ -60,6 +60,7 @@ def create_app(
     llm_provider=None,
     background: bool = True,
     settings_override: Optional[Settings] = None,
+    require_sync: bool = False,
 ) -> FastAPI:
     """创建 FastAPI 应用工厂。
 
@@ -72,6 +73,9 @@ def create_app(
             仍无配置则任务标记失败（不 500）。
         background: True 后台线程执行任务；False 同步执行（便于测试）。
         settings_override: settings 的别名，兼容测试用法（两者取其一，优先 settings_override）。
+        require_sync: 测试专用。True 时即使 background=True 也同步执行
+            Agent/Workflow/V0.2 分支，便于集成测试同步断言、无需轮询后台线程。
+            生产行为不变（默认 False）。
     """
     settings = settings_override or settings or load_settings()
 
@@ -169,9 +173,14 @@ def create_app(
         # 根据配置和执行模式决定是否启用 V0.3 工作流引擎
         # background=False（同步测试模式）保持 V0.2 基线路径，不走工作流
         use_workflow = settings.ENABLE_WORKFLOW_ENGINE and background
+        # Agent 引擎路由：需 Agent 与 Workflow 同时启用，且必须在后台模式。
+        # background=False（V0.2 基线同步测试注入仅实现 chat_json 的 MockLLM）时
+        # 不能进 Agent，否则 Investigator 会调用 llm_provider.chat(tools=...) 抛 AttributeError。
+        use_agent = settings.ENABLE_AGENT_ENGINE and settings.ENABLE_WORKFLOW_ENGINE and background
 
-        # 选择 Skill（V0.3 简化映射：goal_type -> skill_name，目前固定默认 Skill）
-        skill_name = _select_skill(intent.goal_type, settings.DEFAULT_SKILL) if use_workflow else None
+        # 选择 Skill（V0.3 简化映射：goal_type -> skill_name，目前固定默认 Skill）。
+        # Agent 启用的任务同样携带 skill_name，供前端辨识 V0.4 模式。
+        skill_name = _select_skill(intent.goal_type, settings.DEFAULT_SKILL) if (use_workflow or use_agent) else None
 
         # Controller 裁定 P2：LLM 未配置时不运行、不 500，直接标记失败
         if llm_provider is None:
@@ -210,25 +219,60 @@ def create_app(
         if _ds is None:
             return _task_to_response(task)
 
-        if use_workflow:
+        if use_agent:
+            # V0.4 Agent 引擎：优先于 Workflow/V0.2
+            if require_sync:
+                from app.agent.runner import run_agent_sync
+                run_agent_sync(
+                    task.task_id, task_repo=task_repo, event_repo=event_repo,
+                    datasource=_ds, llm_provider=llm_provider, settings=settings,
+                    max_subtasks=req.max_subtasks, max_tool_calls=req.max_tool_calls,
+                )
+                task = task_repo.get_task(task.task_id)
+            else:
+                from app.agent.runner import start_agent_background
+                start_agent_background(
+                    task.task_id, task_repo=task_repo, event_repo=event_repo,
+                    datasource=_ds, llm_provider=llm_provider, settings=settings,
+                    max_subtasks=req.max_subtasks, max_tool_calls=req.max_tool_calls,
+                )
+        elif use_workflow:
             # V0.3 工作流引擎后台执行
-            from app.workflow.runner import start_workflow_background
-            start_workflow_background(
-                task.task_id,
-                skill_name,
-                task_repo=task_repo,
-                event_repo=event_repo,
-                datasource=_ds,
-                llm_provider=llm_provider,
-                settings=settings,
-            )
+            if require_sync:
+                from app.workflow.runner import run_workflow_sync
+                run_workflow_sync(
+                    task.task_id, skill_name=skill_name, task_repo=task_repo,
+                    event_repo=event_repo, datasource=_ds, llm_provider=llm_provider,
+                    settings=settings,
+                )
+                task = task_repo.get_task(task.task_id)
+            else:
+                from app.workflow.runner import start_workflow_background
+                start_workflow_background(
+                    task.task_id,
+                    skill_name,
+                    task_repo=task_repo,
+                    event_repo=event_repo,
+                    datasource=_ds,
+                    llm_provider=llm_provider,
+                    settings=settings,
+                )
         elif background:
             # V0.2 基线流水线后台执行（保留不变）
-            from app.pipeline.runner import start_task_background
-            start_task_background(
-                task_id=task.task_id, task_repo=task_repo, event_repo=event_repo,
-                datasource=_ds, llm_provider=llm_provider, settings=settings,
-            )
+            if require_sync:
+                # require_sync 时同步执行 V0.2，便于测试断言（生产 require_sync 恒为 False）
+                from app.pipeline.runner import run_task_sync
+                run_task_sync(
+                    task.task_id, task_repo=task_repo, event_repo=event_repo,
+                    datasource=_ds, llm_provider=llm_provider, settings=settings,
+                )
+                task = task_repo.get_task(task.task_id)
+            else:
+                from app.pipeline.runner import start_task_background
+                start_task_background(
+                    task_id=task.task_id, task_repo=task_repo, event_repo=event_repo,
+                    datasource=_ds, llm_provider=llm_provider, settings=settings,
+                )
         else:
             # V0.2 基线流水线同步执行（background=False，测试专用）
             from app.pipeline.runner import run_task_sync
