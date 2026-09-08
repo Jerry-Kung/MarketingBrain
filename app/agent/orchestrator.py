@@ -45,6 +45,7 @@ class Orchestrator:
                 self.event_repo.append_event(task_id, "subtask_stop", {"card_id": card.card_id, "stop_reason": STOP_REASON_BUDGET})
                 break
             counter.record_subtask()
+            counter.begin_card()  # 单卡循环预算按卡独立，进入新卡时归零
             inv = self._make_investigator(counter, budget)
             res = inv.run(card, task_id, round_no=1)
             self._register_judgments_and_assumptions(res)
@@ -63,6 +64,7 @@ class Orchestrator:
                     evidence_requirements=["补充证据"], suggested_tools=[], priority=0,
                 )
                 counter.record_subtask()
+                counter.begin_card()  # 补查卡同样按卡独立计数
                 inv = self._make_investigator(counter, budget)
                 sup_res = inv.run(supplement_card, task_id, round_no=1)
                 self._register_judgments_and_assumptions(sup_res)

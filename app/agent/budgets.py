@@ -30,7 +30,13 @@ class AgentBudget:
 
 
 class BudgetCounter:
-    """运行时累计预算使用，并判定是否超限。"""
+    """运行时累计预算使用，并判定是否超限。
+
+    - subtasks / tool_calls / supplements：任务级全局累计（跨卡片总计）。
+    - loops：单卡循环上限（文档语义）。card_loops_used 为当前卡片的循环计数，
+      每次 begin_card() 时归零；loop_exceeded() 仅依据当前卡片计数判定。
+      跨卡累计的 loops_used 仍保留，用于预算报告展示。
+    """
 
     def __init__(self, budget: AgentBudget):
         self.budget = budget
@@ -38,6 +44,15 @@ class BudgetCounter:
         self.loops_used = 0
         self.tool_calls_used = 0
         self.supplements_used = 0
+        self.card_loops_used = 0
+
+    def begin_card(self) -> None:
+        """进入一张新调查卡时调用：重置单卡循环计数。
+
+        单卡循环预算（loops）按卡独立，避免前一张卡耗尽循环预算后
+        后续卡片一进循环即被判预算耗尽。
+        """
+        self.card_loops_used = 0
 
     def record_subtask(self) -> int:
         self.subtasks_used += 1
@@ -45,6 +60,7 @@ class BudgetCounter:
 
     def record_loop(self) -> int:
         self.loops_used += 1
+        self.card_loops_used += 1
         return self.loops_used
 
     def record_tool_call(self) -> int:
@@ -59,7 +75,7 @@ class BudgetCounter:
         return self.subtasks_used > self.budget.subtasks
 
     def loop_exceeded(self) -> bool:
-        return self.loops_used > self.budget.loops
+        return self.card_loops_used > self.budget.loops
 
     def tool_calls_exceeded(self) -> bool:
         return self.tool_calls_used > self.budget.tool_calls

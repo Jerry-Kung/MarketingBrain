@@ -46,6 +46,20 @@ class TestBudgetCounter:
         c.record_loop()
         assert c.loop_exceeded() is True
 
+    def test_loop_budget_resets_per_card(self):
+        """单卡循环预算在 begin_card() 时归零：前一卡耗尽不影响后一卡。"""
+        c = self._counter()  # loops 上限 2
+        c.record_loop(); c.record_loop()
+        assert c.loop_exceeded() is False
+        c.record_loop()
+        assert c.loop_exceeded() is True
+        # 进入下一张卡：单卡循环计数归零，预算不再超限
+        c.begin_card()
+        assert c.card_loops_used == 0
+        assert c.loop_exceeded() is False
+        # 跨卡累计仍保留（供报告展示）
+        assert c.loops_used == 3
+
     def test_supplement_bound(self):
         c = self._counter()
         c.record_supplement()
