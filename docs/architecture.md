@@ -69,6 +69,21 @@ Marketing Brain V0 是一套面向汽车舆情分析的轻量受控 Agent Harnes
 - `evidence-review.yaml`：证据复核专项
 - `strategy-synthesis.yaml`：策略综合专项
 
+### V0.4 新增模块
+
+**app/agent/**（主 Agent 与受控子 Agent Loop）
+
+- `protocols.py`：Agent 协议数据结构。`InvestigationCard`（主 Agent 拆解出的调查卡）、`InvestigatorResult`（子 Agent 单卡执行结果）、`ReviewVerdict`（评审结论）与五个停止原因常量（`evidence_sufficient` / `data_insufficient` / `budget_exhausted` / `tool_failure` / `illegal_output`）。
+- `tool_spec.py`：工具 schema 与白名单。`TOOL_JSON_SCHEMAS`（供 Function Calling 注入）、`TOOL_WHITELIST`、`validate_and_coerce`（参数按 schema 钳制）、`ToolSpecError`。
+- `budgets.py`：预算硬限制。`AgentBudget`（子任务/轮数/工具调用/补查上限）、`BudgetCounter`（累计与超限判定）、`BudgetExhaustedError`。
+- `supervisor.py`：主 Agent（规划）。从意图与既有证据拆解 `InvestigationCard[]`，`parse_cards` 过滤越界建议工具。
+- `investigator.py`：子 Agent（受控 Loop）。用真实 Function Calling 从白名单选工具、依据结果决定下钻或停止。
+- `reviewer.py`：独立评审。输出 `pass` / `request_supplement`（至多一次受控补查）。
+- `orchestrator.py`：编排。确定性骨架串联 Supervisor → Investigator[] → Reviewer → 三层报告，登记 judgment/assumption。
+- `runner.py`：后台/同步运行器。`run_agent_sync` / `start_agent_background`，与 V0.2/V0.3 runner 结构一致。
+
+V0.2 基线（`app/pipeline/`）与 V0.3 工作流（`app/workflow/`）**保持不变**。`app/api/` 的 `create_app` 新增 `require_sync`（测试专用，同步驱动 Agent/Workflow/V0.2，生产行为不变）。
+
 ## 3. 分层与数据流
 
 ```

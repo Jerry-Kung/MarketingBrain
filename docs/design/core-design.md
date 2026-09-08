@@ -135,3 +135,27 @@ V0.2 在既有分层上新增三个子模块：`llm`、`analysis`、`pipeline`�
 - **引用校验对着证据索引**：报告引用的证据 ID 必须来自喂给模型的证据库；未知 ID 直接剔除并在报告中标注，杜绝幻觉证据混入。
 - **推理模型输出预算**：deepseek 系推理模型会把输出预算大量用于 `reasoning_content`，若人为设 `max_tokens` 偏低会在推理阶段耗尽、最终答案为空（`finish_reason=length`）。故报告请求**不设** `max_tokens`，输出上限交由模型自身决定；超时用不低于 300s（覆盖默认的 120s）。
 - **后台线程 + 前端轮询**：`POST /api/tasks` 立即返回 `task_id`，后台线程驱动流水线，前端按 `UI_POLL_INTERVAL_MS` 轮询状态；运行中任务展示模型/Token/耗时。
+
+## 8. V0.4 模块设计要点与关键决策
+
+V0.4 是「主 Agent 与受控子 Agent Loop」里程碑：把 V0.2 的固定基线、V0.3 的分阶段工作流再往前推一步，让 Agent 在**确定性骨架内**自主探索，同时保持全过程可审计、可评估。本版不引入 V0.2/V0.3 之外的既定版本，`app/pipeline/` 与 `app/workflow/` 均保持不变。
+
+### 8.1 关键决策
+
+- **真 Function Calling（方案 A）**：子 Agent 用 LLM 的原生 `tools` / `tool_choice=auto` 机制声明并调用工具，模型侧通过 `LLMResult.tool_calls` 返回结构化调用（含 JSON 参数），而非让模型输出文本再解析。参数仍需 `validate_and_coerce` 按 schema 钳制，工具名必须在白名单内。相比「文本驱动」方案，这消除了模型臆造工具名/参数格式的歧义，也便于审计。
+- **预算硬限制**：`AgentBudget` + `BudgetCounter` 四维上限（子任务 / 单卡循环 / 工具调用 / 补查），任一超限即停止。预算、停止条件、评审门禁属于运行内核，普通子 Agent 无法绕过。
+- **评审门禁 + 一次受控补查**：`Reviewer` 独立评审，`request_supplement` 触发一次受控补查（`AGENT_MAX_SUPPLEMENTS=1`），再评审后定稿。评审是质量门，不是表面步骤。
+- **三层报告**：调查结果分事实层（证据）、解释性判断（theme/risk/opportunity）、待验证假设（assumption）。Investigator 工具只登记事实层，`Orchestrator` 在综合阶段把子任务的 `findings`/`hypothesis` 补登为 judgment/assumption，保证解释层不恒空。
+- **V0.3 保留**：V0.4 不替换 V0.3。`ENABLE_AGENT_ENGINE` 与 `ENABLE_WORKFLOW_ENGINE` 两个开关决定路径（Agent → Workflow → V0.2），三者可各自回退，历史任务不受影响。
+
+### 8.2 角色与边界
+
+- **Supervisor**：只规划（出调查卡），不调用数据工具。
+- **Investigator**：受控 Loop，用 Function Calling 下钻，受预算与白名单夹逼；输出非法时重试一次后以 `illegal_output` 停止。
+- **Reviewer**：只评审，不执行工具；`pass` / `request_supplement`。
+
+### 8.3 测试与验证
+
+- 单元测试覆盖协议、预算、工具 schema、三角色与编排（`test_protocols` / `test_budgets` / `test_tools_spec` / `test_supervisor` / `test_investigator` / `test_reviewer` / `test_orchestrator`）。
+- 集成测试验证一条真实下钻链（`sample_comments → drill_evidence`）与三层报告、事件序列（`test_agent_integration`）。
+- 真实 LLM + MySQL 冒烟（`test_v04_smoke`，`-m manual` 执行）端到端验证三角色 Loop。

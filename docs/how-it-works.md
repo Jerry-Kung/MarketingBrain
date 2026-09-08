@@ -176,6 +176,64 @@ V0.2 基线流水线保持不变。通过 `ENABLE_WORKFLOW_ENGINE` 配置切换�
 
 已有 V0.2 任务（`skill_name` 为 `NULL`）历史数据不受影响。
 
+## 三·七、V0.4 主 Agent 与受控子 Agent Loop（确定性骨架内的 Agent 探索）
+
+V0.4 在 V0.3 分阶段工作流上引入**三个角色**，把「Agent 自主探索」装进一个确定性的骨子里：主 Agent（Supervisor）只做规划，子 Agent（Investigator）在预算内受控下钻，评审（Reviewer）独立把关。普通子 Agent 无法绕过预算、停止条件与评审门禁。
+
+### 三个角色
+
+1. **Supervisor（主 Agent）**：依据任务意图与既有证据，用 LLM 把目标拆解为若干张**结构化调查卡**（`InvestigationCard`：card_id / goal_type / title / objective / evidence_requirements / suggested_tools / priority）。它只规划，不调用任何数据工具；`suggested_tools` 仅保留白名单（`TOOL_WHITELIST`）内的工具。
+2. **Investigator（子 Agent）**：对每张调查卡执行一个受控 Loop，用**真实 Function Calling**（LLM 以 `tools` 参数声明工具，模型返回 `tool_calls`）从白名单选择工具、调用、依据结果决定继续下钻或停止。每轮开始前检查预算，工具名与参数必须通过授权校验。
+3. **Reviewer（评审）**：收集全部子任务结果后独立评审，输出 `pass` 或 `request_supplement`。受控补查**至多一次**（`AGENT_MAX_SUPPLEMENTS`）。
+
+### 编排流程（Orchestrator）
+
+`Orchestrator.run(task_id, intent)` 是确定性骨架，顺序固定：
+
+```text
+Supervisor.plan → InvestigationCard[]
+  └─ 逐卡: 每卡前预算检查 → Investigator.run(card) → 登记 judgment/assumption
+Reviewer.review → pass | request_supplement
+  └─ request_supplement 且未超额度且查询非空 → 补查一张卡 → 二次评审
+_build_report → 三层报告 + agent 审计块 + evidence
+```
+
+### 预算与停止原因
+
+预算是**硬限制**：子任务数、单卡循环轮数、工具调用总数、补查次数四维，任一超限即停止（`BudgetCounter`）。停止原因五类：
+
+| 停止原因 | 含义 |
+|---|---|
+| `evidence_sufficient` | 证据已充分，正常停止 |
+| `data_insufficient` | 数据不足，无法下钻 |
+| `budget_exhausted` | 预算耗尽 |
+| `tool_failure` | 工具执行失败 |
+| `illegal_output` | LLM 输出非法（重试一次后仍非法） |
+
+### 工具与 Function Calling
+
+- 工具注册在 `app/analysis/registry.py`（`TOOL_REGISTRY`），白名单 `TOOL_WHITELIST` 控制其可用集。
+- 模型侧：`LLMProvider.chat(..., tools=...)` 注入工具 schema，`tool_choice="auto"`；返回的 `LLMResult.tool_calls` 解析模型的函数调用（含 JSON 参数）。
+- 参数经 `validate_and_coerce` 按 schema 钳制，越界工具名抛 `ToolSpecError`（记 `tool_unauthorized` 事件）。
+
+### 三层报告
+
+调查结果组装成**三层**：事实层（stat/comment/video 证据）、解释性判断（theme / risk / opportunity 类 `judgment`）、待验证假设（`assumption`）。它们来自 `EvidenceStore` 中按 `kind` 区分的登记——Investigator 执行工具只登记事实层，`Orchestrator` 在综合阶段把子任务的 `findings`/`hypothesis` 补登为 judgment/assumption，否则报告的解释层恒空。
+
+### 审计事件
+
+V0.4 新增事件：`agent_run_start`、`agent_plan`（调查卡列表 + 预算）、`subtask_start` / `subtask_stop`（含停止原因、工具调用数）、`subtask_tool`、`tool_unauthorized`、`illegal_output`、`review_result`（可能两条：首评 + 二次评审）、`task_finished`。
+
+### 兼容与路径切换
+
+V0.2 基线（`app/pipeline/`）与 V0.3 工作流（`app/workflow/`）**保持不变**。`POST /api/tasks` 的路由优先级为 Agent → Workflow → V0.2：
+
+- `ENABLE_AGENT_ENGINE=true`（默认）且 `ENABLE_WORKFLOW_ENGINE=true` 且后台执行时，走 V0.4 Agent；
+- 否则 `ENABLE_WORKFLOW_ENGINE=true` 走 V0.3 工作流；
+- 否则回退 V0.2 基线流水线。
+
+`ENABLE_AGENT_ENGINE=false` 即回退到 V0.3/V0.2。任务经 Agent 走时同样带 `skill_name`（供前端辨识 V0.4 模式），前端在 `result.agent` 存在时额外渲染「调查计划 / 子任务进度 / 停止原因」视图。
+
 ## 四、页面长什么样（V0.1）
 
 前端页面目前有三个区域：
