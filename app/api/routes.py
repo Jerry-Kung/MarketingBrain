@@ -39,6 +39,7 @@ def _task_to_response(task) -> TaskResponse:
         updated_at=task.updated_at,
         result=task.result,
         error=task.error,
+        mode=task.result.get("mode") if task.result else None,
     )
 
 
@@ -217,6 +218,23 @@ def create_app(
         # 数据源未配置（datasource=None）：流水线无法取数，接受任务但不执行，
         # 状态保持 pending（与健康检查/概览的降级语义一致，不 500、不启动后台线程）。
         if _ds is None:
+            return _task_to_response(task)
+
+        if req.mode == "oneshot":
+            # V0.6 对照模式：显式指定 oneshot 时无论开关如何都走一次性 LLM 报告流水线
+            if require_sync:
+                from app.pipeline.oneshot import run_oneshot_sync
+                run_oneshot_sync(
+                    task.task_id, task_repo=task_repo, event_repo=event_repo,
+                    datasource=_ds, llm_provider=llm_provider, settings=settings,
+                )
+                task = task_repo.get_task(task.task_id)
+            else:
+                from app.pipeline.oneshot import start_oneshot_background
+                start_oneshot_background(
+                    task_id=task.task_id, task_repo=task_repo, event_repo=event_repo,
+                    datasource=_ds, llm_provider=llm_provider, settings=settings,
+                )
             return _task_to_response(task)
 
         if use_agent:

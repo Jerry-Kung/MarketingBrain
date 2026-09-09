@@ -1,6 +1,6 @@
 """API 请求/响应模型（Pydantic）。"""
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +15,8 @@ class CreateTaskRequest(BaseModel):
     # 可选：任务级别参数（V0.1 预留）
     max_subtasks: Optional[int] = Field(default=None, ge=1, description="最大子任务数")
     max_tool_calls: Optional[int] = Field(default=None, ge=1, description="最大工具调用数")
+    # V0.6 对照模式：显式指定则覆盖开关；None 时沿用 ENABLE_AGENT_ENGINE/WORKFLOW 默认路由
+    mode: Optional[Literal["oneshot", "agent", "workflow", "baseline"]] = None
 
 
 class TaskResponse(BaseModel):
@@ -30,6 +32,7 @@ class TaskResponse(BaseModel):
     updated_at: str
     result: Optional[dict] = None
     error: Optional[str] = None
+    mode: Optional[str] = None  # V0.6 对照模式
 
 
 class HealthResponse(BaseModel):
