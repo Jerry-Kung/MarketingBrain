@@ -125,3 +125,48 @@ class TestInvestigator:
         inv, event_repo, store, counter = _setup(llm)
         result = inv.run(_card(), "t1", 1)
         assert result.stop_reason == "illegal_output"
+
+    def test_stop_json_wrapped_in_prose(self):
+        """回归：真实 LLM 把 stop JSON 用散文+```json 围栏包裹，必须能解析。
+
+        此前 _parse_turn 只做严格 json.loads(content)，遇到"散文 + 代码围栏包裹
+        的 JSON"直接判非法，导致几乎所有子任务在 2-4 次工具调用后报
+        "LLM 输出非法，停止"。容错提取后此类输出应正常收敛为 evidence_sufficient。
+        """
+        prose_wrapped = (
+            "基于已获取的声量趋势数据和评论证据，我已完成分析。结论如下：\n\n"
+            "```json\n"
+            '{\n  "type": "stop",\n  "stop_reason": "evidence_sufficient",\n'
+            '  "summary": "声量高峰集中在8月25-26日",\n'
+            '  "findings": [{"node": "2026-08-26", "count": 7358, '
+            '"event": "成都车展猛士X700首秀"}],\n'
+            '  "hypothesis": "声量由车展驱动"\n}\n'
+            "```"
+        )
+        llm = FakeLLM([
+            {"content": None, "raw": {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "sample_comments", "arguments": '{"limit": 5}'}}
+            ]}}]}},
+            {"content": prose_wrapped},
+        ])
+        inv, event_repo, store, counter = _setup(llm)
+        result = inv.run(_card(), "t1", 1)
+        assert result.stop_reason == "evidence_sufficient"
+        # findings 为对象数组时应被规范为字符串列表
+        assert isinstance(result.findings, list)
+        assert all(isinstance(f, str) for f in result.findings)
+        assert result.findings and "成都车展猛士X700首秀" in result.findings[0]
+
+    def test_stop_json_in_dict_findings_coerced_to_str(self):
+        """回归：findings 为对象数组时规范为字符串列表，避免 Orchestrator 组装异常。"""
+        llm = FakeLLM([
+            {"content": json.dumps({
+                "type": "stop", "stop_reason": "evidence_sufficient", "summary": "ok",
+                "findings": [{"event": "车展首秀", "node": "26日"}, {"title": "峰值"}],
+            })},
+        ])
+        inv, event_repo, store, counter = _setup(llm)
+        result = inv.run(_card(), "t1", 1)
+        assert result.stop_reason == "evidence_sufficient"
+        assert all(isinstance(f, str) for f in result.findings)
+        assert "车展首秀" in result.findings[0]

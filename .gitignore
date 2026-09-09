@@ -168,6 +168,12 @@ lerna-debug.log*
 # Marketing Brain 应用状态（SQLite 持久化目录）
 .data/
 
+# Marketing Brain 调试导出快照（事件时间线 / 证据 / 任务列表等，代码不读取，属临时产物）
+_task_*.json
+_tasklist.json
+_tl_*.json
+_ev_*.json
+
 # Spyder project settings
 .spyderproject
 .spyproject

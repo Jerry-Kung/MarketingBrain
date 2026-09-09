@@ -17,6 +17,114 @@ from app.analysis.registry import get_tool
 from app.llm.provider import LLMResult
 
 
+def _extract_turn_json(content: str | None):
+    """从 LLM content 中容错提取 stop/tool_call 的 JSON 对象。
+
+    真实 LLM 在停止时并非总输出纯 JSON，常见形态：
+    - 纯 JSON：{"type":"stop",...}
+    - ```json ... ``` 代码围栏包裹
+    - 散文 + 首尾 { } 包裹的 JSON（如『调查结论如下：{...}』）
+    此函数按优先级尝试：纯 JSON 直解 -> 去掉 ```json 围栏后直解 -> 抽取首尾 { } 片段。
+    解析失败或非 dict 返回 None。
+    """
+    if content is None:
+        return None
+    s = content.strip()
+    if not s:
+        return None
+    try:
+        data = json.loads(s)
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, TypeError):
+        pass
+    # 去掉 ```json ... ``` 代码围栏
+    if s.startswith("```"):
+        nl = s.find("\n")
+        fence = s[:nl] if nl != -1 else s
+        if fence.strip().strip("`").strip().lower() in ("", "json"):
+            body = s[nl + 1:] if nl != -1 else ""
+            if body.rstrip().endswith("```"):
+                body = body.rstrip()[:-3]
+            s = body.strip()
+    try:
+        data = json.loads(s)
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, TypeError):
+        pass
+    # 抽取首尾 { } 之间的 JSON 片段（散文包裹时）
+    i = s.find("{")
+    j = s.rfind("}")
+    if i != -1 and j != -1 and j >= i:
+        frag = s[i:j + 1]
+        try:
+            data = json.loads(frag)
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return None
+
+
+def _stringify_findings(findings) -> list[str]:
+    """把 findings 规范为字符串列表。
+
+    LLM 常把 findings 输出为对象数组（如 [{"node":...,"event":...}]）而非字符串数组，
+    InvestigatorResult.findings 约定为 list[str]，非字符串项在 _stop 时会被
+    Orchestrator 当作字典处理导致后续组装异常。此处统一转为精简摘要字符串。
+    """
+    if not isinstance(findings, list):
+        return []
+    out = []
+    for f in findings:
+        if isinstance(f, str):
+            out.append(f)
+        elif isinstance(f, dict):
+            # 优先取可读字段，缺省回退首项与尾项
+            title = (f.get("title") or f.get("node") or f.get("event")
+                     or (list(f.values())[0] if f else ""))
+            detail = f.get("event") or f.get("detail") or ""
+            out.append(f"{title}：{detail}".strip("：") if detail else str(title))
+        else:
+            out.append(str(f))
+    return out
+
+
+def _raw_message(raw: dict) -> dict:
+    """从 raw 中取出 assistant message（缺失时返回空 dict）。"""
+    try:
+        return dict(raw["choices"][0]["message"])
+    except (KeyError, IndexError, TypeError):
+        return {}
+
+
+def _assistant_message(raw: dict) -> dict:
+    """构造可回传的 assistant 消息，保留 tool_calls 与 reasoning_content。"""
+    msg = _raw_message(raw)
+    asst: dict = {"role": "assistant"}
+    # 保留 reasoning_content（Qwen 思考型模型），避免上下文断裂
+    if msg.get("reasoning_content"):
+        asst["reasoning_content"] = msg["reasoning_content"]
+    if msg.get("content"):
+        asst["content"] = msg["content"]
+    if msg.get("tool_calls"):
+        asst["tool_calls"] = msg["tool_calls"]
+    return asst
+
+
+def _tool_call_id(raw: dict, tool_name: str, index: int = 0) -> str:
+    """取本轮第 index 个 tool_call 的 id（用于 role='tool' 的 tool_call_id）。"""
+    msg = _raw_message(raw)
+    calls = msg.get("tool_calls") or []
+    if index < len(calls):
+        cid = calls[index].get("id")
+        if cid:
+            return str(cid)
+    # 缺省装配一个稳定 id，避免工具配对失败
+    return f"call-{tool_name}"
+
+
 class Investigator:
     """子 Agent：围绕一张调查卡开展有限探索。"""
 
@@ -89,13 +197,16 @@ class Investigator:
                 self.event_repo.append_event(task_id, "tool_failure",
                     {"card_id": card.card_id, "tool": tool_name, "error": str(e)})
                 return self._stop(task_id, card, STOP_REASON_TOOL_FAILURE, f"工具执行失败: {e}", tool_calls_used)
-            messages = self._append_tool_result(messages, tool_name, tool_summary, turn.get("reason", ""))
+            messages = self._append_tool_result(
+                messages, tool_name, tool_summary, turn.get("reason", ""), result)
 
     def _call_llm(self, messages) -> LLMResult:
         # settings 为 None（测试直接实例化）时缺省不设超时；生产路径由 Orchestrator 传入。
         timeout = getattr(self.settings, "agent_llm_timeout", None)
+        # max_tokens 需要考虑 reasoning_content（思考链）占用：若只给 2000，
+        # 长摘要+思考会截断，导致 stop JSON 不完整。这里放宽到 4000。
         return self.llm_provider.chat(
-            messages, tools=TOOL_JSON_SCHEMAS, temperature=0.2, max_tokens=2000,
+            messages, tools=TOOL_JSON_SCHEMAS, temperature=0.2, max_tokens=4000,
             timeout=timeout,
         )
 
@@ -103,19 +214,20 @@ class Investigator:
         """从 LLMResult 解析合法回合 dict，或 None。
 
         优先级：tool_calls（function calling）> content 中的 {"type":"stop"/"tool_call"}。
+        content 解析做容错：纯 JSON / ```json 围栏 / 散文包裹三种形态均可提取。
         """
         tcs = result.tool_calls
         if tcs:
             return {"type": "tool_call", "tool": tcs[0]["name"], "arguments": tcs[0]["arguments"], "reason": ""}
         content = result.content or ""
-        try:
-            data = json.loads(content)
-        except (json.JSONDecodeError, TypeError):
-            return None
+        data = _extract_turn_json(content)
         if not isinstance(data, dict):
             return None
         ttype = data.get("type")
         if ttype in ("tool_call", "stop"):
+            # findings 统一规范为字符串列表，避免对象数组导致后续组装异常
+            if "findings" in data:
+                data["findings"] = _stringify_findings(data.get("findings"))
             return data
         return None
 
@@ -151,15 +263,23 @@ class Investigator:
         )
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
-    def _append_tool_result(self, messages, tool_name, summary, reason) -> list[dict]:
-        msg = {
-            "role": "user",
-            "content": json.dumps({
-                "type": "tool_result", "tool": tool_name, "tool_result": summary,
-                "reason": reason or "",
-            }, ensure_ascii=False),
+    def _append_tool_result(self, messages, tool_name, summary, reason, result) -> list[dict]:
+        """追加本轮 assistant 消息 + tool 结果，维持 function-calling 会话协议。
+
+        OpenAI 协议要求：assistant 先输出 tool_calls，随后以 role="tool" 附带
+        tool_call_id 返回结果。此前只追加 role="user" 的工具结果、且不回传
+        assistant 的 tool_calls，模型会因缺少 tool_call 配对而逐步偏离函数调用
+        轨道，退化为纯文本/散文输出（这是"LLM 输出非法"的重要诱因）。
+        同时保留 Qwen 等模型的 reasoning_content，让上下文完整。
+        """
+        asst = _assistant_message(result.raw)
+        tool_result = {
+            "type": "tool_result", "tool": tool_name, "tool_result": summary,
+            "reason": reason or "",
         }
-        return messages + [msg]
+        tool_msg = {"role": "tool", "tool_call_id": _tool_call_id(result.raw, tool_name),
+                    "content": json.dumps(tool_result, ensure_ascii=False)}
+        return messages + [asst] + [tool_msg]
 
     def _stop(self, task_id, card, reason, summary, tool_calls_used, findings=None, hypothesis="") -> InvestigatorResult:
         result = InvestigatorResult(
