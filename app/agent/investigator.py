@@ -91,6 +91,58 @@ def _stringify_findings(findings) -> list[str]:
     return out
 
 
+def _result_summary(res: dict) -> dict:
+    """把工具返回结果压缩为紧凑可读摘要，避免审计事件膨胀。
+
+    各工具的 result dict 形如：
+    - data_coverage: {"comment_count", "datasource"}
+    - volume_trend: {"total"}
+    - period_comparison: {"current", "previous", "change_rate"}
+    - topic_frequency_tool: {"topics": [{"topic", "comment_count"}]}
+    - top_sources: {"videos": [{"job_id", "video_title", "comment_count", ...}]}
+    - sample_comments / drill_evidence: {"comments": [...]}
+    - object_compare: {"current", "other", "change_rate"}
+
+    逐字段抽取，list 最多保留前 3 项（每项仅保留 title/job_id/count 等标量），
+    缺失/非标量安全回退为 sample_size 计数，保证事件体量可控。
+    """
+    result = res.get("result")
+    if not isinstance(result, dict):
+        return {"sample_size": res.get("sample_size", 0)}
+    summary = {}
+
+    def _take(key):
+        v = result.get(key)
+        if v is not None:
+            summary[key] = v
+
+    for key in ("comment_count", "datasource", "total", "current", "previous",
+                "change_rate", "sample_size"):
+        _take(key)
+
+    if isinstance(result.get("topics"), list):
+        summary["topics"] = [
+            {"topic": t.get("topic"), "comment_count": t.get("comment_count")}
+            for t in result["topics"][:3] if isinstance(t, dict)
+        ]
+        summary["topic_count"] = len(result["topics"])
+
+    if isinstance(result.get("videos"), list):
+        summary["videos"] = [
+            {"job_id": v.get("job_id"), "video_title": v.get("video_title"),
+             "comment_count": v.get("comment_count")}
+            for v in result["videos"][:3] if isinstance(v, dict)
+        ]
+        summary["video_count"] = len(result["videos"])
+
+    if isinstance(result.get("comments"), list):
+        summary["comment_count"] = len(result["comments"])
+
+    if "comment_count" not in summary:
+        summary["sample_size"] = res.get("sample_size", 0)
+    return summary
+
+
 def _raw_message(raw: dict) -> dict:
     """从 raw 中取出 assistant message（缺失时返回空 dict）。"""
     try:
@@ -240,6 +292,8 @@ class Investigator:
         self.event_repo.append_event(task_id, "subtask_tool", {
             "card_id": card.card_id, "tool": tool_name, "arguments": coerced,
             "sample_size": res.get("sample_size", 0),
+            "result_summary": _result_summary(res),
+            "bias_note": res.get("bias_note", ""),
         })
         return {"name": res["name"], "sample_size": res.get("sample_size", 0),
                 "result": {"comment_count": res.get("result", {}) if isinstance(res.get("result"), dict) else {}},

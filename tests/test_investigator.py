@@ -170,3 +170,23 @@ class TestInvestigator:
         assert result.stop_reason == "evidence_sufficient"
         assert all(isinstance(f, str) for f in result.findings)
         assert "车展首秀" in result.findings[0]
+
+    def test_subtask_tool_event_has_result_summary_and_bias_note(self):
+        """V0.5 回归：subtask_tool 事件须补记工具返回摘要与偏差提示。"""
+        llm = FakeLLM([
+            {"content": None, "raw": {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "type": "function",
+                 "function": {"name": "sample_comments", "arguments": '{"limit": 5}'}}
+            ]}}]}},
+            {"content": json.dumps({"type": "stop", "stop_reason": "evidence_sufficient", "summary": "ok"})},
+        ])
+        inv, event_repo, store, counter = _setup(llm)
+        result = inv.run(_card(), "t1", 1)
+        assert result.stop_reason == "evidence_sufficient"
+        events = event_repo.get_events("t1")
+        tool_events = [e for e in events if e.event_type == "subtask_tool"]
+        assert tool_events, "应有 subtask_tool 事件"
+        payload = tool_events[0].payload
+        assert "result_summary" in payload, "subtask_tool 应记录 result_summary"
+        assert payload["result_summary"].get("comment_count") == 5
+        assert "bias_note" in payload, "subtask_tool 应记录 bias_note"
