@@ -1,7 +1,6 @@
 // 证据反向：点击证据查看被哪些判断引用（referenced_by）。
-export default function EvidencePanel({ evidence, referencedBy, onNavigate }) {
+export default function EvidencePanel({ evidence, referencedBy }) {
   if (!evidence || evidence.length === 0) return null
-  const byId = new Map(evidence.map((e) => [e.evidence_id, e]))
   return (
     <div className="evidence-panel">
       <h3>证据</h3>
