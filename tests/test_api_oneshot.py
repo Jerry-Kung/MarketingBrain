@@ -57,3 +57,30 @@ def test_create_task_with_mode_oneshot(tmp_path):
     result = data.get("result") or {}
     assert result.get("mode") == "oneshot"
     assert result.get("report", {}).get("scope", {}).get("comment_count") == 100
+
+
+def test_run_oneshot_sync_no_escape_on_task_missing(tmp_path):
+    """任务不存在时返回 {"error": "task not found"}，不抛异常、不调用 mark_failed。
+
+    回归覆盖 review finding：run_oneshot_sync 此前在 task is None 时会继续执行
+    LogicalSnapshot.from_dict(task.snapshot)，触发 AttributeError 并被 except
+    捕获后错误地调用 task_repo.mark_failed("nope", ...)（对不存在的 task_id
+    写入一条 failed 记录）。现应在快照重建前直接短路返回。
+    """
+    from app.store.repository import TaskRepository, EventRepository
+    from app.pipeline.oneshot import run_oneshot_sync
+
+    db = os.path.join(tmp_path, "s.db")
+    tr = TaskRepository(db_path=db); tr.init_schema()
+    er = EventRepository(db_path=db); er.init_schema()
+
+    result = run_oneshot_sync(
+        "nope", task_repo=tr, event_repo=er,
+        datasource=FakeData(), llm_provider=MockLLM(), settings=None,
+    )
+
+    assert result == {"error": "task not found"}
+    # mark_failed 未被调用：不存在的 task_id 不应在 tasks 表留下任何记录
+    assert tr.get_task("nope") is None
+    # 未追加任何事件（task_started/task_failed 均未触发）
+    assert er.get_events("nope") == []

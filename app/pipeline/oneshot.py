@@ -15,8 +15,13 @@ def run_oneshot_sync(task_id, *, task_repo, event_repo, datasource,
     """同步执行一次 oneshot 任务，返回 result。出错则标记 failed。"""
     try:
         task = task_repo.get_task(task_id)
+
+        # 终态守卫：已完成/已失败的任务不得重跑（不重置状态、不覆盖已存结果）
         if task is not None and task.status in {"success", "failed"}:
             return {"already": task.status}
+        if task is None:
+            # 任务不存在：无法标记 failed，返回错误字典，不向 try 外抛出
+            return {"error": "task not found"}
 
         from app.snapshot.snapshot import LogicalSnapshot
         from app.store.evidence import EvidenceStore
