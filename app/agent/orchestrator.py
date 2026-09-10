@@ -105,7 +105,13 @@ class Orchestrator:
         Investigator 执行工具只登记 comment/video/stat 证据；judgment 与 assumption
         两类非事实层由 Orchestrator 在此补登，否则三层报告中「解释性判断/待验证假设」
         恒为空。
+
+        judgment 的 evidence_refs 取本卡内工具实际产出的 evidence_ids（卡级归属，
+        而非全量证据）：这是双向反查的事实来源——正向让报告的「主题洞察/风险机会」
+        能展开对应证据，反向由 register_judgment 回填被引用证据的 referenced_by。
+        此前硬编码为 []，两个方向同时空转。
         """
+        evidence_refs = list(getattr(result, "evidence_ids", []) or [])
         for finding in getattr(result, "findings", []) or []:
             if isinstance(finding, dict):
                 title = finding.get("title")
@@ -117,7 +123,7 @@ class Orchestrator:
                 continue
             self.evidence_store.register_judgment(
                 judgment_type=judgment_type, title=str(title),
-                evidence_refs=[], source="orchestrator",
+                evidence_refs=evidence_refs, source="orchestrator",
             )
         hypothesis = getattr(result, "hypothesis", "") or ""
         if hypothesis:

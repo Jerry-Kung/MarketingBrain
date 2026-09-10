@@ -5,6 +5,7 @@
 对照基线，用于 V0.6 三模式（一次性 / 固定流程 / 受控 Agent）对比评测。
 """
 import threading
+import traceback
 
 from app.pipeline.baseline import BaselinePipeline
 from app.llm.report import generate_strategy_pack
@@ -23,17 +24,25 @@ def run_oneshot_sync(task_id, *, task_repo, event_repo, datasource,
             # 任务不存在：无法标记 failed，返回错误字典，不向 try 外抛出
             return {"error": "task not found"}
 
+        # 先置 running 并写 task_started，再重建快照：快照解析失败时 timeline
+        # 仍有起点，不会出现「task_failed 却没有 task_started」的断裂时间线。
+        task_repo.update_status(task_id, "running")
+        event_repo.append_event(task_id, "task_started", {"task_id": task_id})
+
         from app.snapshot.snapshot import LogicalSnapshot
         from app.store.evidence import EvidenceStore
         snapshot = LogicalSnapshot.from_dict(task.snapshot)
-
-        task_repo.update_status(task_id, "running")
-        event_repo.append_event(task_id, "task_started", {"task_id": task_id})
 
         evidence_store = EvidenceStore(task_id)
         pipeline = BaselinePipeline(datasource, snapshot, evidence_store)
         event_repo.append_event(task_id, "pipeline_start", {"stage": "oneshot"})
         bundle = pipeline.run()
+        # 与 V0.2（app/pipeline/runner.py）对齐逐工具事件，三模式对照时
+        # oneshot 的 timeline 不会比固定流程更空。
+        for st in bundle.stats:
+            event_repo.append_event(task_id, "tool_call",
+                                    {"tool": st["name"],
+                                     "sample_size": st["sample_size"]})
 
         event_repo.append_event(task_id, "report_start", {})
         report, llm_result = generate_strategy_pack(bundle, llm_provider, intent=task.parsed_intent)
@@ -51,14 +60,17 @@ def run_oneshot_sync(task_id, *, task_repo, event_repo, datasource,
                 "latency_ms": llm_result.usage.latency_ms,
             },
             "mode": "oneshot",
-            "progress": {"stage": "done", "tool_calls": 0, "report_success": True},
+            "progress": {"stage": "done", "tool_calls": len(bundle.stats),
+                         "report_success": True},
         }
         task_repo.save_result(task_id, result)
         event_repo.append_event(task_id, "task_finished", {"status": "success"})
         return result
     except Exception as e:
         task_repo.mark_failed(task_id, str(e))
-        event_repo.append_event(task_id, "task_failed", {"error": str(e)})
+        event_repo.append_event(task_id, "task_failed", {
+            "error": str(e), "traceback": traceback.format_exc(limit=5),
+        })
         return {"error": str(e)}
 
 

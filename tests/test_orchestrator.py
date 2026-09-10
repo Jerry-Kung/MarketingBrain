@@ -102,3 +102,46 @@ class TestOrchestrator:
         result = orch.run(task.task_id, AnalysisIntent("坦克300", None, "pulse"))
         assert result["agent"]["review"]["verdict"] == "pass"
         assert result["agent"]["budget"]["supplements"]["used"] == 1
+
+    def test_judgment_carries_tool_evidence_refs(self, tmp_path):
+        """V0.5 头号验收：双向反查在 Agent 路径上必须真实可用。
+
+        回归覆盖 review finding：_register_judgments_and_assumptions 此前硬编码
+        evidence_refs=[]，导致 judgment.extra["evidence_refs"] 恒空、被引用证据的
+        referenced_by 也恒空，「结论→证据」与「证据→结论」两个方向同时空转。
+        现应把 Investigator 本轮工具产出的 evidence_ids 作为 evidence_refs 登记。
+        """
+        task_repo, event_repo, store, snap, settings = _setup(tmp_path)
+        llm = FakeLLM()
+        llm._push(json.dumps({"cards": [{"card_id": "c1", "goal_type": "pulse", "title": "样本",
+                                         "objective": "取样", "evidence_requirements": ["样本"],
+                                         "suggested_tools": ["sample_comments"], "priority": 1}]}))
+        # investigator 首轮 tool_call（登记 5 条评论证据）
+        llm._push(None, {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": "sample_comments", "arguments": '{"limit": 5}'}}
+        ]}}]})
+        llm._push(json.dumps({"type": "stop", "stop_reason": "evidence_sufficient",
+                              "summary": "ok", "findings": ["样本足够"]}))
+        llm._push(json.dumps({"verdict": "pass", "issues": []}))
+
+        task = task_repo.create_task(raw_input="分析坦克300", parsed_intent={"goal_type": "pulse"}, snapshot=snap.to_dict())
+        orch = Orchestrator(llm, FakeDS(), snap, store, event_repo, task_repo, settings)
+        result = orch.run(task.task_id, AnalysisIntent("坦克300", TimeRange(date(2026, 8, 1), date(2026, 8, 31)), "pulse"))
+
+        # 子 Agent 结果须携带工具产出的 evidence_ids
+        inv_results = result["agent"]["subtask_results"]
+        assert inv_results and inv_results[0]["evidence_ids"], "InvestigatorResult 应累积工具 evidence_ids"
+
+        # 方向一：结论 -> 证据（judgment.extra["evidence_refs"] 非空）
+        evidence = result["evidence"]
+        judgments = [e for e in evidence if e["kind"] == "judgment"]
+        assert judgments, "应登记至少一条 judgment"
+        refs = judgments[0]["extra"]["evidence_refs"]
+        assert refs, "judgment 的 evidence_refs 不应为空"
+
+        # 方向二：证据 -> 结论（被引用证据的 referenced_by 非空）
+        by_id = {e["evidence_id"]: e for e in evidence}
+        referenced = [by_id[r] for r in refs if r in by_id]
+        assert referenced, "evidence_refs 应指向真实存在的证据"
+        assert any(e["referenced_by"] for e in referenced), "被引用证据的 referenced_by 不应为空"
+        assert judgments[0]["evidence_id"] in referenced[0]["referenced_by"]

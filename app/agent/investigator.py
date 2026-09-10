@@ -97,27 +97,41 @@ def _result_summary(res: dict) -> dict:
     各工具的 result dict 形如：
     - data_coverage: {"comment_count", "datasource"}
     - volume_trend: {"total"}
-    - period_comparison: {"current", "previous", "change_rate"}
+    - period_comparison: {"current", "previous", "change_rate", "note"}
     - topic_frequency_tool: {"topics": [{"topic", "comment_count"}]}
     - top_sources: {"videos": [{"job_id", "video_title", "comment_count", ...}]}
     - sample_comments / drill_evidence: {"comments": [...]}
-    - object_compare: {"current", "other", "change_rate"}
+    - object_compare: {"object_count", "other_count", "compared", "other_tags"}
+
+    口径约定：`comment_count` 只表示 data_coverage 的「窗口内评论总量」；抽样类
+    工具（sample_comments / drill_evidence）实际抽到的条数用独立键 `sampled_count`，
+    两者不复用同一个键，避免审计读者把抽样条数误读为窗口总量。工具级
+    `sample_size` 始终保留，样本量口径与工具返回一致。
 
     逐字段抽取，list 最多保留前 3 项（每项仅保留 title/job_id/count 等标量），
-    缺失/非标量安全回退为 sample_size 计数，保证事件体量可控。
+    非标量值（嵌套 dict/大对象）一律丢弃，保证事件体量可控。
     """
     result = res.get("result")
     if not isinstance(result, dict):
         return {"sample_size": res.get("sample_size", 0)}
     summary = {}
 
+    def _scalar(v) -> bool:
+        return isinstance(v, (int, float, str, bool))
+
     def _take(key):
+        """只收标量，或全为标量的短列表（截前 5 项）；其余丢弃以控体量。"""
         v = result.get(key)
-        if v is not None:
+        if v is None:
+            return
+        if _scalar(v):
             summary[key] = v
+        elif isinstance(v, list) and all(_scalar(i) for i in v):
+            summary[key] = v[:5]
 
     for key in ("comment_count", "datasource", "total", "current", "previous",
-                "change_rate", "sample_size"):
+                "change_rate", "sample_size",
+                "object_count", "other_count", "compared", "other_tags"):
         _take(key)
 
     if isinstance(result.get("topics"), list):
@@ -136,9 +150,11 @@ def _result_summary(res: dict) -> dict:
         summary["video_count"] = len(result["videos"])
 
     if isinstance(result.get("comments"), list):
-        summary["comment_count"] = len(result["comments"])
+        # 抽样条数用 sampled_count，不写 comment_count（后者专指窗口总量）
+        summary["sampled_count"] = len(result["comments"])
 
-    if "comment_count" not in summary:
+    # 工具级样本量始终可见（result 内一般不含该键，从工具返回顶层补齐）
+    if "sample_size" not in summary:
         summary["sample_size"] = res.get("sample_size", 0)
     return summary
 
@@ -193,6 +209,7 @@ class Investigator:
         self.max_loops = max_loops
         self.max_records = max_records or 500
         self.settings = settings
+        self._evidence_ids: list[str] = []
 
     def run(self, card: InvestigationCard, task_id: str, round_no: int = 1) -> InvestigatorResult:
         """执行单张调查卡，返回 InvestigatorResult。"""
@@ -202,6 +219,9 @@ class Investigator:
              "suggested_tools": card.suggested_tools},
         )
         tool_calls_used = 0
+        # 本次 run 内各工具产出的证据 ID 累积（_execute_tool 追加，_stop 收口）。
+        # 每次 run 重置，Investigator 被复用于多张卡时互不串证据。
+        self._evidence_ids = []
         messages = self._build_messages(card, task_id)
         loops = 0
         while True:
@@ -295,9 +315,14 @@ class Investigator:
             "result_summary": _result_summary(res),
             "bias_note": res.get("bias_note", ""),
         })
+        evidence_ids = res.get("evidence_ids", []) or []
+        # 累积到本次 run，供 _stop 写入 InvestigatorResult.evidence_ids
+        for eid in evidence_ids:
+            if eid not in self._evidence_ids:
+                self._evidence_ids.append(eid)
         return {"name": res["name"], "sample_size": res.get("sample_size", 0),
                 "result": {"comment_count": res.get("result", {}) if isinstance(res.get("result"), dict) else {}},
-                "evidence_ids": res.get("evidence_ids", []), "bias_note": res.get("bias_note", "")}
+                "evidence_ids": evidence_ids, "bias_note": res.get("bias_note", "")}
 
     def _build_messages(self, card, task_id) -> list[dict]:
         system = (
@@ -339,6 +364,7 @@ class Investigator:
         result = InvestigatorResult(
             stop_reason=reason, summary=summary, findings=findings or [],
             tool_calls_used=tool_calls_used, hypothesis=hypothesis,
+            evidence_ids=list(self._evidence_ids),
         )
         self.event_repo.append_event(task_id, "subtask_stop", {
             "card_id": card.card_id, "stop_reason": reason, "summary": summary,

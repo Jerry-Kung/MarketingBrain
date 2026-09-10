@@ -92,6 +92,9 @@ class InvestigatorResult:
     findings: list[str] = field(default_factory=list)
     tool_calls_used: int = 0
     hypothesis: str = ""
+    # 本卡内各工具调用登记/命中的证据 ID 累积，供 Orchestrator 登记 judgment 的
+    # evidence_refs（双向反查的事实来源，缺它「结论→证据」与「证据→结论」都会空转）。
+    evidence_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -100,6 +103,7 @@ class InvestigatorResult:
             "findings": self.findings,
             "tool_calls_used": self.tool_calls_used,
             "hypothesis": self.hypothesis,
+            "evidence_ids": self.evidence_ids,
         }
 
 

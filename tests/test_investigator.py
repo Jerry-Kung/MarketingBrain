@@ -188,5 +188,39 @@ class TestInvestigator:
         assert tool_events, "应有 subtask_tool 事件"
         payload = tool_events[0].payload
         assert "result_summary" in payload, "subtask_tool 应记录 result_summary"
-        assert payload["result_summary"].get("comment_count") == 5
+        # 抽样类工具的「抽到几条」用独立键 sampled_count，不与 data_coverage 的
+        # 「窗口总量」comment_count 同名（一键两义会让审计读者误判口径）。
+        assert payload["result_summary"].get("sampled_count") == 5
+        assert "comment_count" not in payload["result_summary"],             "抽样工具不应写 comment_count（该键专指窗口总量）"
+        # 工具级 sample_size 必须保留（计划原意：样本量与工具 sample_size 一致）
+        assert payload["result_summary"].get("sample_size") == 5
+        assert payload["sample_size"] == 5
         assert "bias_note" in payload, "subtask_tool 应记录 bias_note"
+
+    def test_result_summary_keeps_object_compare_numbers(self):
+        """回归：object_compare 的真实返回键必须进入 result_summary。
+
+        工具返回 {"object_count","other_count","compared","other_tags"}，
+        _take 的键清单此前只覆盖 current/previous/change_rate，导致 object_compare
+        的摘要退化成只有 sample_size，审计上看不到对比数字。
+        """
+        from app.agent.investigator import _result_summary
+        res = {
+            "name": "object_compare", "sample_size": 100,
+            "result": {"object_count": 100, "other_count": 40,
+                       "compared": True, "other_tags": ["坦克500"]},
+        }
+        summary = _result_summary(res)
+        assert summary["object_count"] == 100
+        assert summary["other_count"] == 40
+        assert summary["compared"] is True
+        assert summary["other_tags"] == ["坦克500"]
+
+    def test_result_summary_drops_non_scalar_values(self):
+        """标量守卫：未来工具的大型结构化值不得绕过体量控制进入事件。"""
+        from app.agent.investigator import _result_summary
+        res = {"name": "x", "sample_size": 3,
+               "result": {"total": 7, "current": {"nested": list(range(1000))}}}
+        summary = _result_summary(res)
+        assert summary["total"] == 7
+        assert "current" not in summary

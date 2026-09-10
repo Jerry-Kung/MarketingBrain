@@ -15,8 +15,12 @@ class CreateTaskRequest(BaseModel):
     # 可选：任务级别参数（V0.1 预留）
     max_subtasks: Optional[int] = Field(default=None, ge=1, description="最大子任务数")
     max_tool_calls: Optional[int] = Field(default=None, ge=1, description="最大工具调用数")
-    # V0.6 对照模式：显式指定则覆盖开关；None 时沿用 ENABLE_AGENT_ENGINE/WORKFLOW 默认路由
-    mode: Optional[Literal["oneshot", "agent", "workflow", "baseline"]] = None
+    # V0.6 对照模式：`oneshot` 是唯一的请求级模式（显式指定即走一次性 LLM 报告
+    # 流水线，不受引擎开关影响）。三模式对照的另两条路径——固定流程（V0.2 基线）与
+    # 受控 Agent（V0.4）——由 ENABLE_AGENT_ENGINE / ENABLE_WORKFLOW_ENGINE 两个配置
+    # 开关路由，不通过本字段选择；因此这里只接受 "oneshot"，其它取值一律 422，
+    # 避免非法值被静默忽略后落到默认分支、让运维分不清实际跑了哪条路径。
+    mode: Optional[Literal["oneshot"]] = None
 
 
 class TaskResponse(BaseModel):
