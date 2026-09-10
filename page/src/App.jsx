@@ -5,6 +5,7 @@ import AgentPlan from './AgentPlan'
 import ReportView from './ReportView'
 import AuditWorkbench from './AuditWorkbench'
 import RawJson from './RawJson'
+import { matchesStatus } from './taskFilter'
 
 const API_BASE = '/api'
 const UI_POLL_INTERVAL_MS = 2500
@@ -191,7 +192,7 @@ function App() {
           {tasksError && <p className="error">加载失败：{tasksError}</p>}
           {tasks.length === 0 && !tasksError && <p className="muted">暂无任务。</p>}
           <ul className="task-list">
-            {tasks.filter((t) => statusFilter === 'all' || t.status === statusFilter).map((t) => (
+            {tasks.filter((t) => matchesStatus(t, statusFilter)).map((t) => (
               <li
                 key={t.task_id}
                 className={`task-item${selectedTaskId === t.task_id ? ' task-item-active' : ''}`}
@@ -226,10 +227,14 @@ function App() {
             {selectedTask && selectedTask.skill_name && (
               <Timeline taskId={selectedTask.task_id} />
             )}
+            {/* 审计工作台/计划只对 Agent 任务有内容：V0.2 与 oneshot 任务没有
+                subtask_* 事件，无条件渲染只会得到一个恒空的面板。 */}
             {selectedTask?.result?.agent && (
-              <AgentPlan agent={selectedTask.result.agent} />
+              <>
+                <AgentPlan agent={selectedTask.result.agent} />
+                <AuditWorkbench taskId={selectedTask.task_id} />
+              </>
             )}
-            {selectedTask && <AuditWorkbench taskId={selectedTask.task_id} />}
             <RawJson label="任务结果原始 JSON" json={selectedTask?.result} />
           </section>
         )}

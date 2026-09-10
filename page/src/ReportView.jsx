@@ -39,9 +39,13 @@ function ReportView({ task, result }) {
 
   const evidenceByComment = new Map()
   const evidenceByJob = new Map()
+  // evidence_id 索引：V0.4 Agent 路径的 judgment 用 evidence_refs 引用 evidence_id，
+  // 既非 comment_id 也非 job_id，需要独立映射才能解析（否则「结论→证据」空转）。
+  const evidenceById = new Map()
   for (const ev of evidence) {
     if (ev && ev.comment_id) evidenceByComment.set(String(ev.comment_id), ev)
     if (ev && ev.job_id) evidenceByJob.set(String(ev.job_id), ev)
+    if (ev && ev.evidence_id) evidenceById.set(String(ev.evidence_id), ev)
   }
 
   return (
@@ -66,7 +70,7 @@ function ReportView({ task, result }) {
       )}
 
       {report ? (
-        <RenderReport report={report} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
+        <RenderReport report={report} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
       ) : (
         <p className="muted">报告生成中或失败…</p>
       )}
@@ -86,33 +90,33 @@ function Stat({ label, value }) {
   )
 }
 
-function RenderReport({ report, evidenceByComment, evidenceByJob }) {
+function RenderReport({ report, evidenceByComment, evidenceByJob, evidenceById }) {
   return (
     <div className="report report-body">
-      <ReportField label="数据覆盖" value={report.scope} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
-      <ReportField label="总体声量" value={report.overall} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
-      <ReportField label="主题洞察" value={report.themes} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
-      <ReportField label="来源分布" value={report.sources} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
-      <ReportField label="风险与机会" value={report.risk_opportunity} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
-      <ReportField label="证据缺口" value={report.evidence_gaps} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
-      <ReportField label="待验证假设" value={report.assumptions} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
-      <ReportField label="建议行动" value={report.actions} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
-      <ReportField label="指标体系" value={report.metrics} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
+      <ReportField label="数据覆盖" value={report.scope} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
+      <ReportField label="总体声量" value={report.overall} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
+      <ReportField label="主题洞察" value={report.themes} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
+      <ReportField label="来源分布" value={report.sources} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
+      <ReportField label="风险与机会" value={report.risk_opportunity} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
+      <ReportField label="证据缺口" value={report.evidence_gaps} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
+      <ReportField label="待验证假设" value={report.assumptions} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
+      <ReportField label="建议行动" value={report.actions} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
+      <ReportField label="指标体系" value={report.metrics} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
     </div>
   )
 }
 
-function ReportField({ label, value, evidenceByComment, evidenceByJob }) {
+function ReportField({ label, value, evidenceByComment, evidenceByJob, evidenceById }) {
   if (value == null || value === '') return null
   return (
     <div className="report-section">
       <h3>{label}</h3>
-      <RenderValue value={value} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
+      <RenderValue value={value} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
     </div>
   )
 }
 
-function RenderValue({ value, evidenceByComment, evidenceByJob }) {
+function RenderValue({ value, evidenceByComment, evidenceByJob, evidenceById }) {
   if (value == null) return null
   if (typeof value === 'string' || typeof value === 'number') {
     return <p>{String(value)}</p>
@@ -123,7 +127,7 @@ function RenderValue({ value, evidenceByComment, evidenceByJob }) {
       <ul className="report-list">
         {value.map((item, i) => (
           <li key={i}>
-            <RenderValue value={item} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
+            <RenderValue value={item} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
           </li>
         ))}
       </ul>
@@ -141,32 +145,41 @@ function RenderValue({ value, evidenceByComment, evidenceByJob }) {
               {v == null
                 ? '—'
                 : typeof v === 'object'
-                  ? <RenderValue value={v} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
+                  ? <RenderValue value={v} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
                   : String(v)}
             </span>
           </div>
         ))}
-        <ResolveRefs value={value} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} />
+        <ResolveRefs value={value} evidenceByComment={evidenceByComment} evidenceByJob={evidenceByJob} evidenceById={evidenceById} />
       </div>
     )
   }
   return null
 }
 
-// 报告中的某处引用（refs/comment_id/job_id）有对应证据时，展示证据文本。
-function ResolveRefs({ value, evidenceByComment, evidenceByJob }) {
+// 报告中的某处引用有对应证据时，展示证据文本。支持两套引用键：
+// - refs / comment_id / job_id：V0.2 基线报告按业务 ID 引用（查 comment/job 映射）
+// - evidence_refs：V0.4 Agent 的 judgment 按 evidence_id 引用（查 evidence_id 映射）
+// 缺了后者，Agent 路径的「主题洞察/风险与机会」永远展不开证据（双向反查正向空转）。
+const REF_KEYS = new Set(['refs', 'comment_id', 'job_id', 'evidence_refs'])
+
+function ResolveRefs({ value, evidenceByComment, evidenceByJob, evidenceById }) {
   const parts = []
   for (const [k, v] of Object.entries(value)) {
-    if ((k === 'refs' || k === 'comment_id' || k === 'job_id') && v != null && v !== '') {
+    if (REF_KEYS.has(k) && v != null && v !== '') {
       const ids = Array.isArray(v) ? v : [v]
       for (const id of ids) {
         const idStr = String(id)
-        const ev = evidenceByComment.get(idStr) || evidenceByJob.get(idStr)
+        const ev = k === 'evidence_refs'
+          ? evidenceById?.get(idStr)
+          : (evidenceByComment.get(idStr) || evidenceByJob.get(idStr))
         if (ev) {
           parts.push(
             <div className="report-evidence" key={`${k}-${idStr}`}>
               <span className="report-evidence-id">[{idStr}]</span>
-              <span className="report-evidence-text">{ev.content || ev.video_title || ''}</span>
+              <span className="report-evidence-text">
+                {ev.content || ev.video_title || ev.extra?.title || ev.extra?.label || ''}
+              </span>
             </div>
           )
         }
