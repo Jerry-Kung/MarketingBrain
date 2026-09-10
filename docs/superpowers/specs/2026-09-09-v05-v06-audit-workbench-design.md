@@ -84,7 +84,7 @@ self.event_repo.append_event(task_id, "subtask_tool", {
 - 将数据概要 + 抽样结果一次性喂给真实 LLM，生成「一次性 LLM 报告」——与固定流程（V0.2）的区别是**报告由单次 LLM 生成**而非分阶段综合，与受控 Agent（V0.4）的区别是**无子 Agent 探索**。
 - 输出沿用三层报告 + 证据结构，`result` 中带 `mode: "oneshot"`，供前端与评分表辨识。
 
-**路由接入**：`CreateTaskRequest` 增加可选 `mode` 字段（`"agent" / "workflow" / "baseline" / "oneshot"`，默认按现有开关决定）。`mode="oneshot"` 时走 oneshot 流水线，其余照旧。
+**路由接入**：`CreateTaskRequest` 增加可选 `mode` 字段，取值收窄为 `"oneshot"`（默认 `None` 按现有开关决定）。`mode="oneshot"` 时走 oneshot 流水线。其余对照模式（固定流程 / 受控 Agent）由配置开关 `ENABLE_AGENT_ENGINE`/`ENABLE_WORKFLOW_ENGINE` 决定，不作为请求级取值——非法取值返回 422，避免静默误标。
 
 **配置**：复用现有 `.env` 与 Model Provider，不新增依赖。
 
